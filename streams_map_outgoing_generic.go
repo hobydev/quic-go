@@ -13,7 +13,8 @@ import (
 //go:generate genny -in $GOFILE -out streams_map_outgoing_uni.go gen "item=sendStreamI Item=UniStream streamTypeGeneric=protocol.StreamTypeUni"
 type outgoingItemsMap struct {
 	mutex sync.RWMutex
-	cond  sync.Cond
+
+	openQueue []chan struct{}
 
 	streams map[protocol.StreamID]item
 
@@ -32,15 +33,13 @@ func newOutgoingItemsMap(
 	newStream func(protocol.StreamID) item,
 	queueControlFrame func(wire.Frame),
 ) *outgoingItemsMap {
-	m := &outgoingItemsMap{
+	return &outgoingItemsMap{
 		streams:              make(map[protocol.StreamID]item),
 		nextStream:           nextStream,
 		maxStream:            protocol.InvalidStreamID,
 		newStream:            newStream,
 		queueStreamIDBlocked: func(f *wire.StreamsBlockedFrame) { queueControlFrame(f) },
 	}
-	m.cond.L = &m.mutex
-	return m
 }
 
 func (m *outgoingItemsMap) OpenStream() (item, error) {
@@ -60,21 +59,26 @@ func (m *outgoingItemsMap) OpenStream() (item, error) {
 
 func (m *outgoingItemsMap) OpenStreamSync() (item, error) {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
 
-	for {
-		if m.closeErr != nil {
-			return nil, m.closeErr
-		}
-		str, err := m.openStreamImpl()
-		if err == nil {
-			return str, nil
-		}
-		if err != nil && err != errTooManyOpenStreams {
-			return nil, streamOpenErr{err}
-		}
-		m.cond.Wait()
+	if m.closeErr != nil {
+		m.mutex.Unlock()
+		return nil, m.closeErr
 	}
+	str, err := m.openStreamImpl()
+	if err == nil {
+		m.mutex.Unlock()
+		return str, nil
+	}
+	if err != errTooManyOpenStreams {
+		m.mutex.Unlock()
+		return nil, streamOpenErr{err}
+	}
+	waitChan := make(chan struct{})
+	m.openQueue = append(m.openQueue, waitChan)
+	m.mutex.Unlock()
+	<-waitChan
+
+	return m.OpenStream()
 }
 
 func (m *outgoingItemsMap) openStreamImpl() (item, error) {
@@ -122,12 +126,20 @@ func (m *outgoingItemsMap) DeleteStream(id protocol.StreamID) error {
 
 func (m *outgoingItemsMap) SetMaxStream(id protocol.StreamID) {
 	m.mutex.Lock()
-	if id > m.maxStream {
-		m.maxStream = id
-		m.blockedSent = false
-		m.cond.Broadcast()
+	defer m.mutex.Unlock()
+
+	if id <= m.maxStream {
+		return
 	}
-	m.mutex.Unlock()
+	for i := m.maxStream.StreamNum(); i < id.StreamNum(); i++ {
+		if len(m.openQueue) == 0 {
+			break
+		}
+		close(m.openQueue[0])
+		m.openQueue = m.openQueue[1:]
+	}
+	m.maxStream = id
+	m.blockedSent = false
 }
 
 func (m *outgoingItemsMap) CloseWithError(err error) {
@@ -136,6 +148,8 @@ func (m *outgoingItemsMap) CloseWithError(err error) {
 	for _, str := range m.streams {
 		str.closeForShutdown(err)
 	}
-	m.cond.Broadcast()
+	for _, c := range m.openQueue {
+		close(c)
+	}
 	m.mutex.Unlock()
 }
