@@ -14,6 +14,9 @@ TODO:
 - Maybe read through code again, this time with gquic branch and gquic crypto
 - Have the QUIC server listen for each incoming net.PacketConn
 - Add support to QUIC code for gquic PSK
+  - In deriveKeys, do something like this:
+  - sharedSecret = "QUIC PSK" + \0 + psk + uint64(len(psk)) + sharedSecret + uint64(len(sharedSecret))
+  - When calling keyDerivation in crypto_setup_server.go  
 - Add support to QUIC for datagrams
 
 Server call stack:
