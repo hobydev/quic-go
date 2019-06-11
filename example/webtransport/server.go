@@ -1,6 +1,3 @@
-// TODO:
-//
-
 package main
 
 import (

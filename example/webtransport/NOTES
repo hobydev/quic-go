@@ -3,6 +3,18 @@ Steps:
 git clone git@github.com:pthatcherg/quic-go.git
 go run examples/webtransport/server.go
 
+TODO:
+- Make web server give ice ufrag, pwd, ip, port, PSK
+- Have "run ICE server" do demux by ip, port
+  - (ip, port) => (username, net.PacketConn)
+  - username => net.PacketConn
+  - If it's a new (ip, port) and a new username, add to both
+  - If it's a new (ip, port) but not a new username, add to first
+  - Have each demuxed non-ICE packet go into a net.PacketConn
+- Maybe read through code again, this time with gquic branch and gquic crypto
+- Have the QUIC server listen for each incoming net.PacketConn
+- Add support to QUIC code for gquic PSK
+- Add support to QUIC for datagrams
 
 Server call stack:
 
