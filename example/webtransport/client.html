@@ -1,0 +1,30 @@
+<script src="client.js"></script>
+
+Steps to run this demo:
+
+<ol>
+  <li>
+    Enable "enable-experimental-web-platform-features" in "about:flags" or <a
+    href="https://github.com/shampson/RTCQuicTransport-Origin-Trial-Documentation">
+    sign up for the origin trial</a>.
+  </li>
+  <li>
+    Run the server via "go run examples/webtransport/server.go".
+  </li>
+  <li>
+    Load http://localhost:3030/
+  </li>
+  <li>
+    When the page is open, open the JS console to check for errors.
+  </li>
+</ol>
+
+<table>
+  <tr>
+    <td>ICE state</td><td><span id="ice-state"></span></td> 
+  </tr>
+  <tr>
+    <td>QUIC state</td><td><span id="quic-state"></span></td> 
+  </tr>
+</table>
+

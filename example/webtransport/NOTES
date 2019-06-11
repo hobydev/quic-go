@@ -1,0 +1,232 @@
+Steps:
+
+git clone git@github.com:pthatcherg/quic-go.git
+go run examples/webtransport/server.go
+
+
+Server call stack:
+
+main
+ // in http3/server.go
+ server.ListenAndServeTLS(testdata.GetCertificatePaths())
+  // in /server.go
+  ListenAddr
+   sessioHandler := getMultiplexer().AddConn(conn, config.ConnectionIDLength, config.StatelessResetKey)
+    // in /multiplexer.go
+    // in sync.Once.Do
+    m := &connMultiplexer{ ... }
+    sessionHandler = m.newPacketHandlerManager(conn, ...)
+     // in /packet_handler_map.go
+     sessionHandler = &pakcetHandlerMap {
+      conn: conn,
+     }
+     go sessionHandler.listen()
+      for {
+        buffer := getPacketBuffer()
+        // in buffer_pool.go, has a pool of slices of size 1452 (MaxReceivePacketSize)
+        n, addr := conn.ReadFrom(buffer)
+        sessionHandler.handlePacket(addr, buffer[:n])
+         connID := wire.ParseConnectionID(buffer)
+         sessionHandler.maybeHandleStatelessReset(buffer)
+         p := &receivedPacket{
+           remoteAddr: addr
+           buffer: buffer
+         }
+         handler := sessionHandler.handlers[connID]
+         if handler
+          handler.handlePacket(p)
+           sess.handlePacket           
+            sess.handlePacketImpl
+             hdr, packetData, rest, err := wire.ParsePacket(p.data, s.srcConnID.Len())
+             ...
+             sess.handleSinglePacket(p, hdr)
+              ...
+              packet := sess.unpacker.Unpack(hdr, p)
+              ...
+              sess.handleUnpacketPacket(packet, ...)
+               ...
+               r := bytes.NewReader(packet)
+               for {
+                frame := sess.frameParser.ParseNext(r, ...)
+                ...
+                sess.handleFrame(frame, ...)
+                 if crypto frame
+                  sess.handleCryptoFrame(frame, ...)
+                   sess.cryptoFrameManager.HandleCryptoFrame(frame, ...)
+                    str = initialStream or handshakeStream or oneRTTStream
+                    str.HandleCryptoFrame(frame)
+                    for {
+                     data := str.GetCryptoData()
+                     sess.cryptoFrameManager.cryptoHandler.HandleMessage(data)
+                      // in crypto_setup.go
+                      sess.cryptoFrameManager.cryptoHandler.handleMessageForServer(data[0]) // or ForClient
+                       ... handshake stuff! ...
+                 if stream frame
+                  sess.handleStreamFrame(frame, ...)
+                   str := s.streasMap.GetOrOpenReceiveStream(frame.StreamID)
+                    // in streams_map.go
+                    m.incomingUinStreams.GetOrOpenStream // m.incomingBidiStream
+                     // in streams_map_incoming_uni.go
+                     ...
+                     newID := ... find next by incrementing by 4
+                     str = m.streams[newID] = m.newStream(newID)
+                      newReceiveStream(id, m.sender, m.newFlowController(id), version)
+                      // in receive_stream.go
+                      str = return &receiveStream{
+                        streamID:       streamID,
+                        sender:         sender,
+                        flowController: flowController,
+                        ...
+                      }
+                   str.handleStreamFrame(frame)
+                    completed, err := str.handleStreamFrameImpl(frame)
+                     ...
+                     s.frameQueue.Push(frame.data, ...)
+                     s.signalRead()
+                      s.readChan <- struct{}{}
+                    if completed
+                     str.streamCompleted()
+                      str.sender.OnStreamCompleted(str.streamID)
+                       sess.streamsMap.DeleteStream(id)
+         else if sessionHandler.server
+          sessionHandler.server.handlePacket(p)
+           // in server.go
+           go sessionHandler.server.handlePacketImpl
+            hdr := wire.ParsePacket(p.data, s.config.ConnectionIDLength)
+          	if !hdr.IsLongHeader {
+             return false
+            }
+            if !protocol.IsSupportedVersion(s.config.Versions, hdr.Version) {
+              s.sendVersionNegotiationPacket(p, hdr)
+              return false
+            }
+            sess, connID := s.handleInitialImpl(p, hdr)
+             ...
+             connID := protocol.GenerateConnectionID(s.config.ConnectionIDLength)
+             sess, err := s.createNewSession(
+               p.remoteAddr,
+               origDestConnectionID,
+               hdr.DestConnectionID,
+               hdr.SrcConnectionID,
+               connID,
+               hdr.Version,
+             )
+              params := &handshake.TransportParameters{
+                ... constants ...
+                OriginalConnectionID:           origDestConnID,
+              }
+              sess, err := s.newSession(...)
+               // in session.go
+               sess := &session{
+                 conn:                  conn,
+                 perspective:           protocol.PerspectiveServer,
+                 ...
+               }
+               sess.preSetup()
+                sess.frameParser = wire.NewFrameParser(...)
+                ...
+                sess.connFlowController = flowcontrol.NewConnectionFlowController(
+                 ...
+                 s.onHasConnectionWindowUpdate()
+                  sess.windowUpdateQueue.AddConnection()
+                   ***
+                   ...
+                  s.scheduleSending()
+                   s.sendingScheduled <- struct{}{}
+                )
+               ...
+               // a lot of *** here
+               sess.framer = newFramer(...)
+               initialStream := newCryptoStream()
+               handshakeStream := newCryptoStream()
+               oneRTTStream := newPostHandshakeCryptoStream(s.framer)
+               sess.cryptoStreamHandler = handshake.NewCryptoSetupServer(initialStream, handshakeStream, oneRttStream, params, ...)
+                cs := newCryptoSetup(...)
+                cs.conn = qtls.Server(newConn(remoteAddr), tlsConf)
+                 *** qtls ***
+               ...
+               sess.cryptoStreamManager = newCryptoStreamManager(cs, initialStream, handshakeStream, oneRttStream)
+                // in crypto_stream_manager.go
+                return &cryptoStreamManager{ ... }
+               sess.postSetup()
+                s.windowUpdateQueue = newWindowUpdateQueu(...)
+                 ***
+               sess.unpacker = newPacketUnpacker(cs, s.version)
+               sess.receivedPackets <- p
+                // handled in run() (see below)
+              go sess.run()
+               go sess.cryptoStreamHandler.RunHandshake()
+                 go conn.Handshake()
+                  *** qtls ***
+                 sess.cryptoStreamHandler.runner.OnHandshakeComplete()
+               if sess.perspective == protocol.PerspectiveClient
+                <- sess.clientHelloWritten
+                 sess.scheduleSending()
+                  // trigger <- s.sendingScheduled below
+                  s.sendingScheduled <- XXX
+               // triggered by sess.cryptoStreamHandler.runner.onHandshakeComplete()
+                <-sess.handshakeCompleteChan
+                sess.handleHandshakeComplete()
+                 sess.sessionRunner.OnHandshakeComplete(sess)
+                  // In server.go
+                  sess.sessionRunner.onHandshakeCompleteImpl
+                	if sess.perspective == protocol.PerspectiveServer {
+                   sess.queueControlFrame(&wire.PingFrame{})
+                 }
+               for {
+                ...
+                sess.sendPackets()
+                 ...
+                 sess.sendPacket()
+                  ...
+                  packet := s.packer.PackPacket()
+                  s.sendPackedPacket(packer)
+                   ...
+                   s.conn.Write(packet)
+               }
+             sess.handlePacket(p)
+              ... see above ...
+            sessionHandler.Add(connID, sess)
+             ... so sess.handlePacket will be called
+       }
+    p := connManager{
+      manager: sessionHandler
+      ...
+    }
+    // cache connManager by conn in conn => connManager table
+   server := &Server{ ... }
+   server.setup()
+    server.sessionRunner = &runner{
+     packetHandlerManager: sessionHandler
+     onHandshakeCompleteImpl: ...
+    }
+   // sets up handlePacket (see above)
+   sessionHandler.SetServer(server)
+    sessionHandler.server = server
+     ... so server.handlePacket will be closed ...
+
+receiveStream.Read(p)
+ receiveStream.readImpl(p)
+  for bytesRead < len(p)
+   if !receiveStream.currentFrame
+    receiveStream.dequeueNextFrame()
+     offset, receiveStream.currentFrame = receiveStream.frameQueue.Pop()
+   for {
+    ...
+    if !receiveStream.currentFrame
+     break
+    ...
+    receiveStream.readChan()
+   }
+   if !receiveStream.currentFrame
+    receiveStream.dequeueNextFrame()
+   m := copy(p[bytesRead:], receiveStream.currentFrame[receiveStream.readPosInFrame:])
+   receiveStream.readPosInFrame += m
+   bytesRead += m
+   if ...
+    s.findRead = true
+    return true, byteRead
+   ...
+   return false, bytesRead
+ if completed
+  s.streamCompleted()    
