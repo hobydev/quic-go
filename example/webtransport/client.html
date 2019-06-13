@@ -1,5 +1,7 @@
 <script src="client.js"></script>
 
+<body onload="run();">
+
 Steps to run this demo:
 
 <ol>
@@ -12,7 +14,7 @@ Steps to run this demo:
     Run the server via "go run examples/webtransport/server.go".
   </li>
   <li>
-    Load http://localhost:3030/
+    Load http://localhost:3030/client.html or this file.
   </li>
   <li>
     When the page is open, open the JS console to check for errors.
@@ -21,10 +23,15 @@ Steps to run this demo:
 
 <table>
   <tr>
+    <td>Signaling state</td><td><span id="signaling-state"></span></td>
+  </tr>
+  <tr>
     <td>ICE state</td><td><span id="ice-state"></span></td> 
   </tr>
   <tr>
     <td>QUIC state</td><td><span id="quic-state"></span></td> 
   </tr>
 </table>
+
+</body>
 

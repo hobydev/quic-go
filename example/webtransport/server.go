@@ -1,81 +1,121 @@
 package main
 
 import (
-	"fmt"
+	"encoding/hex"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 
 	quic "github.com/lucas-clemente/quic-go"
 )
 
 var (
-	httpPort    = ":3030"
-	iceAddress  = "127.0.0.1"
-	icePort     = 3737
-	icePassword = "password"
-
-	// If any of these are set, an HTTP server will be run
-	iceAddressUrl  = "/ice-address"
-	icePortUrl     = "/ice-port"
-	icePasswordUrl = "/ice-password"
+	httpPort = 3030
+	icePort  = 3737
+	fileRoot = "./example/webtransport/"
 )
+
+type clientRequest struct {
+	quicPsk             []byte
+	iceUsernameFragment string
+	response            chan clientResponse
+}
+
+type clientResponse struct {
+	iceHost     string
+	icePort     int
+	icePassword string
+}
 
 // We start a server echoing data on the first stream the client opens,
 // then connect with a client, send the message, and wait for its receipt.
 func main() {
-	if len(iceAddressUrl) > 0 || len(iceAddressUrl) > 0 || len(icePasswordUrl) > 0 {
-		go runHttpServer()
-	}
-	runIceQuicServer()
+	requests := make(chan clientRequest)
+	go runSignalingServer(requests)
+	runIceQuicServer(requests)
 }
 
-func runHttpServer() {
-	http.HandleFunc(iceAddressUrl, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, iceAddress)
-	})
-	http.HandleFunc(icePortUrl, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, icePort)
-	})
-	http.HandleFunc(icePasswordUrl, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, icePassword)
+func runSignalingServer(requests chan<- clientRequest) {
+	// For client.html and client.js
+	http.Handle("/", http.FileServer(http.Dir(fileRoot)))
+	http.HandleFunc("/web-transport", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST")
+		w.Header().Set("Access-Control-Allow-Headers", "quic-psk,ice-username-fragment")
+		w.Header().Set("Access-Control-Expose-Headers", "ice-host,ice-port,ice-password")
+		log.Printf("%v", r.Header)
+		quicPskHex := r.Header.Get("quic-psk")
+		quicPsk, _ := hex.DecodeString(quicPskHex)
+		iceUsernameFragment := r.Header.Get("ice-username-fragment")
+		if len(quicPsk) == 0 || len(iceUsernameFragment) == 0 {
+			if len(r.Header.Get("Access-Control-Request-Headers")) > 0 {
+				// It's a pre-flight request.
+				log.Printf("Returning from pre-flight request.\n")
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusBadRequest)
+			}
+			return
+		}
+
+		responseChan := make(chan clientResponse, 1)
+		requests <- clientRequest{quicPsk: quicPsk, iceUsernameFragment: iceUsernameFragment, response: responseChan}
+		response := <-responseChan
+		w.Header().Set("ice-host", response.iceHost)
+		w.Header().Set("ice-port", strconv.Itoa(response.icePort))
+		w.Header().Set("ice-password", response.icePassword)
+		w.WriteHeader(http.StatusOK)
 	})
 
-	http.Handle("/", http.FileServer(http.Dir(".")))
-
-	log.Fatal(http.ListenAndServe(httpPort, nil))
+	log.Fatal(http.ListenAndServe(net.JoinHostPort("", strconv.Itoa(httpPort)), nil))
 }
 
-func runIceQuicServer() {
+func runIceQuicServer(requests <-chan clientRequest) {
 	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: nil, Port: icePort})
 	if err != nil {
 		log.Fatalf("Failed to open UDP port %d: '%s'\n", icePort, err)
 	}
-	log.Printf("Listening for ICE and QUIC on %s for password %s.\n", udp.LocalAddr(), icePassword)
 
-	buffer := make([]byte, 1500)
-	for {
-		size, addr, err := udp.ReadFromUDP(buffer[:])
-		log.Printf("Read packet of size %d from %s.\n", size, addr)
-		p := buffer[:size]
-		if err != nil {
-			log.Fatalf("Failed to read UDP packet: '%s'\n", err)
+	// host, _, _ := net.SplitHostPort(udp.LocalAddr().String())
+	// *** TODO: Fix this; not stuck with ipv6
+	host := "127.0.0.1"
+	icePassword := "password"
+	// *** TODO: Have a random password
+	// *** TODO: handle more than one at a time
+	for request := range requests {
+		log.Printf("Got client request with ICE ufrag %s\n", request.iceUsernameFragment)
+		request.response <- clientResponse{
+			iceHost:     host,
+			icePort:     icePort,
+			icePassword: "password",
 		}
+		log.Printf("Listening for ICE and QUIC on %s for password %s.\n", udp.LocalAddr(), icePassword)
 
-		stun := quic.VerifyStunPacket(p)
-		isIceCheck := (stun != nil && stun.Type() == quic.StunBindingRequest && stun.ValidateFingerprint())
-		if isIceCheck {
-			if !stun.ValidateMessageIntegrity([]byte(icePassword)) {
-				log.Printf("ICE check has bad message integrity.\n")
-				continue
-			}
-			response := quic.NewStunPacket(quic.StunBindingResponse, stun.TransactionId()).AppendMessageIntegrity([]byte(icePassword)).AppendFingerprint()
-			_, err = udp.WriteTo(response, addr)
+		buffer := make([]byte, 1500)
+		for {
+			size, addr, err := udp.ReadFromUDP(buffer[:])
+			log.Printf("Read packet of size %d from %s.\n", size, addr)
+			p := buffer[:size]
 			if err != nil {
-				log.Printf("Failed to write ICE check response.\n")
+				log.Fatalf("Failed to read UDP packet: '%s'\n", err)
 			}
-		} else {
-			log.Printf("Read unknown packet of size %d from %s.\n", size, addr)
+
+			stun := quic.VerifyStunPacket(p)
+			isIceCheck := (stun != nil && stun.Type() == quic.StunBindingRequest && stun.ValidateFingerprint())
+			if isIceCheck {
+				if !stun.ValidateMessageIntegrity([]byte(icePassword)) {
+					log.Printf("ICE check has bad message integrity.\n")
+					continue
+				}
+				response := quic.NewStunPacket(quic.StunBindingResponse, stun.TransactionId()).AppendMessageIntegrity([]byte(icePassword)).AppendFingerprint()
+				_, err = udp.WriteTo(response, addr)
+				if err != nil {
+					log.Printf("Failed to write ICE check response.\n")
+				}
+			} else {
+				log.Printf("Read unknown packet of size %d from %s.\n", size, addr)
+			}
 		}
 	}
 }
