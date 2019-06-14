@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
@@ -26,9 +27,9 @@ var (
 )
 
 type clientRequest struct {
-	quicPsk             []byte
-	iceUsernameFragment string
-	response            chan clientResponse
+	quicPsk     []byte
+	iceUsername string
+	response    chan clientResponse
 }
 
 type clientResponse struct {
@@ -60,14 +61,14 @@ func runSignalingServer(requests chan<- clientRequest) {
 		w.Header().Set("Access-Control-Allow-Methods", "POST")
 		w.Header().Set("Access-Control-Allow-Headers", "quic-psk,ice-username-fragment")
 		w.Header().Set("Access-Control-Expose-Headers", "ice-host,ice-port,ice-password")
-		log.Printf("%v", r.Header)
+		// log.Printf("%v", r.Header)
 		quicPskHex := r.Header.Get("quic-psk")
 		quicPsk, _ := hex.DecodeString(quicPskHex)
 		iceUsernameFragment := r.Header.Get("ice-username-fragment")
 		if len(quicPsk) == 0 || len(iceUsernameFragment) == 0 {
 			if len(r.Header.Get("Access-Control-Request-Headers")) > 0 {
 				// It's a pre-flight request.
-				log.Printf("Returning from pre-flight request.\n")
+				// log.Printf("Returning from pre-flight request.\n")
 				w.WriteHeader(http.StatusOK)
 			} else {
 				w.WriteHeader(http.StatusBadRequest)
@@ -75,8 +76,9 @@ func runSignalingServer(requests chan<- clientRequest) {
 			return
 		}
 
+		iceUsername := strings.Join([]string{iceUsernameFragment, iceUsernameFragment}, ":")
 		responseChan := make(chan clientResponse, 1)
-		requests <- clientRequest{quicPsk: quicPsk, iceUsernameFragment: iceUsernameFragment, response: responseChan}
+		requests <- clientRequest{quicPsk: quicPsk, iceUsername: iceUsername, response: responseChan}
 		response := <-responseChan
 		w.Header().Set("ice-host", response.iceHost)
 		w.Header().Set("ice-port", strconv.Itoa(response.icePort))
@@ -84,59 +86,74 @@ func runSignalingServer(requests chan<- clientRequest) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	log.Fatal(http.ListenAndServe(net.JoinHostPort("", strconv.Itoa(httpPort)), nil))
+	httpAddress := net.JoinHostPort("", strconv.Itoa(httpPort))
+	log.Fatal(http.ListenAndServe(httpAddress, nil))
 }
 
 type iceConn struct {
-	packets chan []byte
+	udp             net.PacketConn
+	remoteAddr      net.Addr
+	username        string
+	password        string
+	receivedPackets chan []byte
 }
 
-type iceAddr struct {
-}
-
-func (conn iceConn) Close() error {
-	close(conn.packets)
+func (ice *iceConn) Close() error {
+	close(ice.receivedPackets)
 	return nil
 }
 
-func (conn iceConn) LocalAddr() net.Addr {
-	return iceAddr{}
+func (ice *iceConn) LocalAddr() net.Addr {
+	return ice.udp.LocalAddr()
+}
+
+func (ice *iceConn) RemoteAddr() net.Addr {
+	return iceAddr(ice.username)
+}
+
+type iceAddr string
+
+func (ia iceAddr) String() string {
+	return string(ia)
 }
 
 func (ia iceAddr) Network() string {
 	return "ice"
 }
 
-func (ia iceAddr) String() string {
-	// TODO: use client ufrag
-	return ""
-}
-
-func (conn iceConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (ice *iceConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	// TODO: Handle close
-	packet := <-conn.packets
+	packet := <-ice.receivedPackets
 	copy(b, packet)
-	return len(packet), iceAddr{}, nil
+	return len(packet), ice.RemoteAddr(), nil
 }
 
-func (conn iceConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	// *** TODO: Make writes back to the original UDP socket work
-	return 0, nil
+func (ice *iceConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	log.Printf("Send packet of size %d to %s", len(p), addr)
+	if addr != ice.RemoteAddr() {
+		return 0, errors.New("You can't change the remote address when sending with ICE")
+	}
+	return ice.udp.WriteTo(p, addr)
 }
 
-func (conn iceConn) SetDeadline(t time.Time) error {
+func (ice iceConn) SetDeadline(t time.Time) error {
 	// TODO
 	return errors.New("SetDeadline not supported.")
 }
 
-func (conn iceConn) SetReadDeadline(t time.Time) error {
+func (ice iceConn) SetReadDeadline(t time.Time) error {
 	// TODO
 	return errors.New("SetReadDeadline not supported.")
 }
 
-func (conn iceConn) SetWriteDeadline(t time.Time) error {
+func (ice iceConn) SetWriteDeadline(t time.Time) error {
 	// TODO
 	return errors.New("SetWriteDeadline not supported.")
+}
+
+type udpPacket struct {
+	sender net.Addr
+	data   []byte
 }
 
 func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
@@ -145,47 +162,69 @@ func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 		log.Fatalf("Failed to open UDP port %d: '%s'\n", icePort, err)
 	}
 
-	// host, _, _ := net.SplitHostPort(udp.LocalAddr().String())
-	// TODO: Fix this; not stuck with ipv6
-	host := "127.0.0.1"
-	icePassword := "password"
-	// TODO: Have a random password
-	// TODO: handle more than one at a time
-	for request := range requests {
-		log.Printf("Got client request with ICE ufrag %s\n", request.iceUsernameFragment)
-		request.response <- clientResponse{
-			iceHost:     host,
-			icePort:     icePort,
-			icePassword: "password",
-		}
-		log.Printf("Listening for ICE and QUIC on %s for password %s.\n", udp.LocalAddr(), icePassword)
-
-		packets := make(chan []byte)
-		conns <- iceConn{packets: packets}
+	// Put packets into a channel so we can select on packets and client requests
+	udpPackets := make(chan udpPacket)
+	go func(udpPackets chan<- udpPacket) {
 		buffer := make([]byte, 1500)
 		for {
 			size, addr, err := udp.ReadFromUDP(buffer[:])
-			log.Printf("Read packet of size %d from %s.\n", size, addr)
-			p := buffer[:size]
 			if err != nil {
+				close(udpPackets)
 				log.Fatalf("Failed to read UDP packet: '%s'\n", err)
+				break
 			}
+			data := make([]byte, size)
+			copy(data, buffer)
+			udpPackets <- udpPacket{data: data, sender: addr}
+		}
+	}(udpPackets)
 
-			stun := quic.VerifyStunPacket(p)
+	iceConnByUsername := make(map[string]*iceConn)
+	iceConnByRemoteAddr := make(map[net.Addr]*iceConn)
+	for {
+		select {
+		case request := <-requests:
+			log.Printf("Got client request with ICE username %s\n", request.iceUsername)
+			// TODO: make random
+			// TODO: Fix this; not stuck with ipv6
+			// host, _, _ := net.SplitHostPort(udp.LocalAddr().String())
+			host := "127.0.0.1"
+			icePassword := "password"
+			request.response <- clientResponse{
+				iceHost:     host,
+				icePort:     icePort,
+				icePassword: icePassword,
+			}
+			iceConn := &iceConn{udp: udp, username: request.iceUsername, password: icePassword, receivedPackets: make(chan []byte)}
+			iceConnByUsername[iceConn.username] = iceConn
+			conns <- iceConn
+		case udpPacket := <-udpPackets:
+			log.Printf("Read packet of size %d from %s.\n", len(udpPacket.data), udpPacket.sender)
+			stun := quic.VerifyStunPacket(udpPacket.data)
 			isIceCheck := (stun != nil && stun.Type() == quic.StunBindingRequest && stun.ValidateFingerprint())
 			if isIceCheck {
-				if !stun.ValidateMessageIntegrity([]byte(icePassword)) {
+				iceConn, ok := iceConnByUsername[stun.Username()]
+				if !ok {
+					log.Printf("ICE check from unknown username %s", stun.Username())
+				}
+				if !stun.ValidateMessageIntegrity([]byte(iceConn.password)) {
 					log.Printf("ICE check has bad message integrity.\n")
 					continue
 				}
-				response := quic.NewStunPacket(quic.StunBindingResponse, stun.TransactionId()).AppendMessageIntegrity([]byte(icePassword)).AppendFingerprint()
-				_, err = udp.WriteTo(response, addr)
+				response := quic.NewStunPacket(quic.StunBindingResponse, stun.TransactionId()).AppendMessageIntegrity([]byte(iceConn.password)).AppendFingerprint()
+				_, err = udp.WriteTo(response, udpPacket.sender)
 				if err != nil {
 					log.Printf("Failed to write ICE check response.\n")
 				}
+				// log.Printf("New username: %s\n", stun.Username())
+				iceConn.remoteAddr = udpPacket.sender
+				iceConnByRemoteAddr[udpPacket.sender] = iceConn
 			} else {
-				// Gets copied in ReadFrom
-				packets <- buffer[:size]
+				iceConn, ok := iceConnByRemoteAddr[udpPacket.sender]
+				if !ok {
+					log.Printf("Received non-ICE packet from unkonwn address: %s\n", udpPacket.sender)
+				}
+				iceConn.receivedPackets <- udpPacket.data
 			}
 		}
 	}

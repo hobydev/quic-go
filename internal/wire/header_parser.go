@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log"
 
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
@@ -23,12 +24,14 @@ type InvariantHeader struct {
 // ParseInvariantHeader parses the version independent part of the header
 func ParseInvariantHeader(b *bytes.Reader, shortHeaderConnIDLen int) (*InvariantHeader, error) {
 	typeByte, err := b.ReadByte()
+	fmt.Printf("QUIC: typeByte = %v\n", typeByte)
 	if err != nil {
 		return nil, err
 	}
 
 	h := &InvariantHeader{typeByte: typeByte}
 	h.IsLongHeader = typeByte&0x80 > 0
+	fmt.Printf("QUIC: IsLongHeader = %v\n", h.IsLongHeader)
 
 	// If this is not a Long Header, it could either be a Public Header or a Short Header.
 	if !h.IsLongHeader {
@@ -56,17 +59,22 @@ func ParseInvariantHeader(b *bytes.Reader, shortHeaderConnIDLen int) (*Invariant
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("QUIC: v = %#x\n", v)
+
 	h.Version = protocol.VersionNumber(v)
 	connIDLenByte, err := b.ReadByte()
+	fmt.Printf("QUIC: connIDLenByte = %d\n", connIDLenByte)
 	if err != nil {
 		return nil, err
 	}
 	dcil, scil := decodeConnIDLen(connIDLenByte)
 	h.DestConnectionID, err = protocol.ReadConnectionID(b, dcil)
+	fmt.Printf("QUIC: DestConnectionID = %#x\n", h.DestConnectionID)
 	if err != nil {
 		return nil, err
 	}
 	h.SrcConnectionID, err = protocol.ReadConnectionID(b, scil)
+	fmt.Printf("QUIC: SrcConnectionID = %#x\n", h.SrcConnectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +131,7 @@ func (iv *InvariantHeader) parseVersionNegotiationPacket(b *bytes.Reader) (*Head
 func (iv *InvariantHeader) parseLongHeader(b *bytes.Reader, sentBy protocol.Perspective, v protocol.VersionNumber) (*Header, error) {
 	h := iv.toHeader()
 	h.Type = protocol.PacketType(iv.typeByte & 0x7f)
+	log.Printf("QUIC: h.Type = %#x from iv.typeByte", h.Type)
 
 	if h.Type != protocol.PacketTypeInitial && h.Type != protocol.PacketTypeRetry && h.Type != protocol.PacketType0RTT && h.Type != protocol.PacketTypeHandshake {
 		return nil, qerr.Error(qerr.InvalidPacketHeader, fmt.Sprintf("Received packet with invalid packet type: %d", h.Type))

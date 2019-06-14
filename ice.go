@@ -159,6 +159,14 @@ func (p StunPacket) getAttr(typ uint16) (StunAttr, int) {
 	}
 }
 
+func (p StunPacket) Username() string {
+	a, _ := p.getAttr(stunAttrUsername)
+	if a == nil {
+		return ""
+	}
+	return string(a.bytes())
+}
+
 func (p1 StunPacket) appendAttr(attrType uint16, attrLength uint16) (StunPacket, StunAttr) {
 	extraLength := int(stunAttrHeaderSize + roundUpTo4ByteBoundary(attrLength))
 	p2 := StunPacket(make([]byte, len(p1)+extraLength))

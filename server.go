@@ -345,6 +345,7 @@ func (s *server) Addr() net.Addr {
 }
 
 func (s *server) handlePacket(p *receivedPacket) {
+	fmt.Printf("QUIC: server.handlePacket(%d)\n", len(p.data))
 	if err := s.handlePacketImpl(p); err != nil {
 		s.logger.Debugf("error handling packet from %s: %s", p.remoteAddr, err)
 	}
@@ -352,6 +353,7 @@ func (s *server) handlePacket(p *receivedPacket) {
 
 func (s *server) handlePacketImpl(p *receivedPacket) error {
 	hdr := p.header
+	fmt.Printf("QUIC: server.handlePacketImpl(%d)\n", len(p.data))
 
 	if hdr.VersionFlag || hdr.IsLongHeader {
 		// send a Version Negotiation Packet if the client is speaking a different protocol version

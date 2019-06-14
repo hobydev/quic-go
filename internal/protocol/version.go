@@ -12,7 +12,8 @@ type VersionNumber uint32
 
 // gQUIC version range as defined in the wiki: https://github.com/quicwg/base-drafts/wiki/QUIC-Versions
 const (
-	gquicVersion0   = 0x51303030
+	gquicVersion0 = 0x51303030
+	//                0x51303436
 	maxGquicVersion = 0x51303439
 )
 

@@ -26,6 +26,7 @@ func newServerSession(sess quicSession, config *Config, logger utils.Logger) pac
 }
 
 func (s *serverSession) handlePacket(p *receivedPacket) {
+	fmt.Printf("QUIC: serverSession.handlePacket(%d)\n", len(p.data))
 	if err := s.handlePacketImpl(p); err != nil {
 		s.logger.Debugf("error handling packet from %s: %s", p.remoteAddr, err)
 	}
