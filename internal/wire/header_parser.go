@@ -2,6 +2,7 @@ package wire
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -59,7 +60,9 @@ func ParseInvariantHeader(b *bytes.Reader, shortHeaderConnIDLen int) (*Invariant
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("QUIC: v = %#x\n", v)
+	var printable []byte = make([]byte, 4)
+	binary.BigEndian.PutUint32(printable, v)
+	fmt.Printf("QUIC: version = %s\n", string(printable))
 
 	h.Version = protocol.VersionNumber(v)
 	connIDLenByte, err := b.ReadByte()
@@ -130,7 +133,7 @@ func (iv *InvariantHeader) parseVersionNegotiationPacket(b *bytes.Reader) (*Head
 
 func (iv *InvariantHeader) parseLongHeader(b *bytes.Reader, sentBy protocol.Perspective, v protocol.VersionNumber) (*Header, error) {
 	h := iv.toHeader()
-	h.Type = protocol.PacketType(iv.typeByte & 0x7f)
+	h.Type = protocol.PacketType((iv.typeByte & 0x30) >> 4)
 	log.Printf("QUIC: h.Type = %#x from iv.typeByte", h.Type)
 
 	if h.Type != protocol.PacketTypeInitial && h.Type != protocol.PacketTypeRetry && h.Type != protocol.PacketType0RTT && h.Type != protocol.PacketTypeHandshake {

@@ -151,7 +151,6 @@ func (h *packetHandlerMap) handlePacket(addr net.Addr, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("error parsing invariant header: %s", err)
 	}
-	fmt.Printf("QUIC: parsed invariant header. version %#x\n", iHdr.Version)
 
 	h.mutex.RLock()
 	handler, ok := h.handlers[string(iHdr.DestConnectionID)]

@@ -245,3 +245,47 @@ receiveStream.Read(p)
    return false, bytesRead
  if completed
   s.streamCompleted()    
+
+// I think we're at 47
+ QuicPacketCreator::Flush()
+  QuicPacketCreator::SerializePacket()
+   QuicPacketHeader header
+   FillPacketHeader(&header)
+   QuicFramer::BuildDataPacket(header, buffer)
+    QuicDataWriter writer(packet_length, buffer)
+    QuicFramer::AppendPacketHeader(header)
+     if (VersionHasIetfInvariantHeader(transport_version()))
+       transport_version > QUIC_VERSION_43
+      QuicFramer::AppendIetfPacketHeader(header, writer)
+       // header.version_flag == long header???
+       AppendIetfHeaderTypeByte(header, writer)
+        if transport_version() > QUIC_VERSION_44
+         if (header.version_flag)
+          // Before QUIC 44 it was different with the packet_number_length here
+          // And the way the header.long_packet_type is different
+          type = 11000000 | (header.packet_number_length - 1) | header.long_packet_type
+         else
+          type = 01000000 | (header.packet_number_length - 1)
+        writer->WriteUInt8(type)
+       if (header.version_flag) {
+        writer->WriteUInt32('Q047')  // Or 046 or 045
+       AppendIetfConnectionIds
+        if (header.version_flag)
+         dcil = connection_id.length() - 3 or 0 if 0
+         scil = source_connection_id.length() - 3 or 0 if 0
+         writer->WriteUInt8(dcil << 4 | scil)
+         if header.destination_connection_id_included
+          writer->WriteConnectionId(destination_connection_id)
+         if header.source_connection_id_included
+          writer->WriteConnectionId(source_connection_id)
+        else
+          if header.destination_connection_id_included
+           writer->WriteConnectionId(destination_connection_id)
+       if (header.long_packet_type == INITIAL)
+        writer->WriteVarInt62(header.retry_token.length())
+        writer->WriteStringPiece(header.retry_token)
+       writer->WriteVarInt62(256)
+       AppendPacketNumber(header.packet_number_length, header.packet_number)
+        writer->WriteBytesToUInt64(header.packet_number_length,  header.packet_number.ToUint64())
+       if (header.version_flag)
+        writer->WriteBytes(header.nonce, 32)
