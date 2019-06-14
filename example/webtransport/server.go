@@ -1,13 +1,22 @@
 package main
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
+	"errors"
 	"log"
+	"math/big"
 	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	quic "github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/internal/handshake"
 )
 
 var (
@@ -33,7 +42,14 @@ type clientResponse struct {
 func main() {
 	requests := make(chan clientRequest)
 	go runSignalingServer(requests)
-	runIceQuicServer(requests)
+
+	conns := make(chan net.PacketConn)
+	go runIceServer(requests, conns)
+
+	tlsCert := generateTlsCert()
+	for conn := range conns {
+		go runQuicServer(conn, tlsCert)
+	}
 }
 
 func runSignalingServer(requests chan<- clientRequest) {
@@ -71,18 +87,70 @@ func runSignalingServer(requests chan<- clientRequest) {
 	log.Fatal(http.ListenAndServe(net.JoinHostPort("", strconv.Itoa(httpPort)), nil))
 }
 
-func runIceQuicServer(requests <-chan clientRequest) {
+type iceConn struct {
+	packets chan []byte
+}
+
+type iceAddr struct {
+}
+
+func (conn iceConn) Close() error {
+	close(conn.packets)
+	return nil
+}
+
+func (conn iceConn) LocalAddr() net.Addr {
+	return iceAddr{}
+}
+
+func (ia iceAddr) Network() string {
+	return "ice"
+}
+
+func (ia iceAddr) String() string {
+	// TODO: use client ufrag
+	return ""
+}
+
+func (conn iceConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+	// TODO: Handle close
+	packet := <-conn.packets
+	copy(b, packet)
+	return len(packet), iceAddr{}, nil
+}
+
+func (conn iceConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
+	// *** TODO: Make writes back to the original UDP socket work
+	return 0, nil
+}
+
+func (conn iceConn) SetDeadline(t time.Time) error {
+	// TODO
+	return errors.New("SetDeadline not supported.")
+}
+
+func (conn iceConn) SetReadDeadline(t time.Time) error {
+	// TODO
+	return errors.New("SetReadDeadline not supported.")
+}
+
+func (conn iceConn) SetWriteDeadline(t time.Time) error {
+	// TODO
+	return errors.New("SetWriteDeadline not supported.")
+}
+
+func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: nil, Port: icePort})
 	if err != nil {
 		log.Fatalf("Failed to open UDP port %d: '%s'\n", icePort, err)
 	}
 
 	// host, _, _ := net.SplitHostPort(udp.LocalAddr().String())
-	// *** TODO: Fix this; not stuck with ipv6
+	// TODO: Fix this; not stuck with ipv6
 	host := "127.0.0.1"
 	icePassword := "password"
-	// *** TODO: Have a random password
-	// *** TODO: handle more than one at a time
+	// TODO: Have a random password
+	// TODO: handle more than one at a time
 	for request := range requests {
 		log.Printf("Got client request with ICE ufrag %s\n", request.iceUsernameFragment)
 		request.response <- clientResponse{
@@ -92,6 +160,8 @@ func runIceQuicServer(requests <-chan clientRequest) {
 		}
 		log.Printf("Listening for ICE and QUIC on %s for password %s.\n", udp.LocalAddr(), icePassword)
 
+		packets := make(chan []byte)
+		conns <- iceConn{packets: packets}
 		buffer := make([]byte, 1500)
 		for {
 			size, addr, err := udp.ReadFromUDP(buffer[:])
@@ -114,62 +184,57 @@ func runIceQuicServer(requests <-chan clientRequest) {
 					log.Printf("Failed to write ICE check response.\n")
 				}
 			} else {
-				log.Printf("Read unknown packet of size %d from %s.\n", size, addr)
+				// Gets copied in ReadFrom
+				packets <- buffer[:size]
 			}
 		}
 	}
 }
 
-// QUIC server
-//  quicConfig := {
-//    MaxIncomingStreams: 1000,
-//    MaxIncomingUniStreams: 1000,
-//    AcceptCookie: func(...) bool { return true; } // ???
-//    KeepAlive: true,  // ???
-//  }
-//  tlsConfig := {
-//    InsecureSkipVerify: true,  // ???
-//    ClientAuth: tls.RequireAnyClientCert,  // ???
-//    Certificates: []tls.Certificate{{
-//     generateTlsCert()
-//    }}
-//  }
-//  listener, err := quic.Listen(iceConn, tlsConfig, quicConfig)
-//  sess, err := l.Accept()
-//  stream, err := sess.AcceptStream()
-//  ... Read, Write, StreamID, Close
+func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate) {
+	quicConfig := &quic.Config{
+		MaxIncomingStreams:    1000,
+		MaxIncomingUniStreams: 1000,
+		AcceptCookie:          func(net.Addr, *handshake.Cookie) bool { return true },
+		KeepAlive:             true,
+	}
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: true,
+		ClientAuth:         tls.RequireAnyClientCert,
+		Certificates:       []tls.Certificate{tlsCert},
+	}
+	listener, err := quic.Listen(conn, tlsConfig, quicConfig)
+	if err != nil {
+		log.Fatalf("Could not quic.Listen().")
+	}
+	session, err := listener.Accept()
+	log.Printf("Got a session!\n")
+	if err != nil {
+		log.Fatalf("Could not listener.Accept().")
+	}
+	stream, err := session.AcceptStream()
+	if err != nil {
+		log.Fatalf("Could not session.AcceptStream().")
+	}
+	log.Printf("Got a stream! StreamID = %s", stream.StreamID())
+}
 
-//	listener, err := quic.ListenAddr(addr, generateTLSConfig(), nil)
-//	sess, err := listener.Accept()
-//	stream, err := sess.AcceptStream()
-//	_, err = io.Copy(loggingWriter{stream}, stream)
-
-// QUIC client
-//  session, err := quic.DialAddr(addr, &tls.Config{InsecureSkipVerify: true}, nil)
-//	stream, err := session.OpenStreamSync()
-//	_, err = stream.Write([]byte(message))
-
-//	buf := make([]byte, len(message))
-//	_, err = io.ReadFull(stream, buf)
-
-/*
-func generateTlsCert() *tls.Certificate {
+func generateTlsCert() tls.Certificate {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Could not generate RSA key.")
 	}
 	template := x509.Certificate{SerialNumber: big.NewInt(1)}
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Could not create certificate.")
 	}
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 
 	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Could not create TLS cert.")
 	}
 	return tlsCert
 }
-*/
