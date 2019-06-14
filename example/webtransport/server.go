@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"log"
 	"math/big"
 	"net"
@@ -180,7 +181,7 @@ func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 	}(udpPackets)
 
 	iceConnByUsername := make(map[string]*iceConn)
-	iceConnByRemoteAddr := make(map[net.Addr]*iceConn)
+	iceConnByRemoteAddr := make(map[string]*iceConn)
 	for {
 		select {
 		case request := <-requests:
@@ -215,15 +216,18 @@ func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 				_, err = udp.WriteTo(response, udpPacket.sender)
 				if err != nil {
 					log.Printf("Failed to write ICE check response.\n")
+					continue
 				}
 				// log.Printf("New username: %s\n", stun.Username())
 				iceConn.remoteAddr = udpPacket.sender
-				iceConnByRemoteAddr[udpPacket.sender] = iceConn
+				iceConnByRemoteAddr[udpPacket.sender.String()] = iceConn
 			} else {
-				iceConn, ok := iceConnByRemoteAddr[udpPacket.sender]
+				iceConn, ok := iceConnByRemoteAddr[udpPacket.sender.String()]
 				if !ok {
 					log.Printf("Received non-ICE packet from unkonwn address: %s\n", udpPacket.sender)
+					continue
 				}
+				fmt.Printf("iceConn: %v\n", iceConn)
 				iceConn.receivedPackets <- udpPacket.data
 			}
 		}
