@@ -19,9 +19,8 @@ const (
 
 // The version numbers, making grepping easier
 const (
-	Version39       VersionNumber = gquicVersion0 + 3*0x100 + 0x9
-	Version43       VersionNumber = gquicVersion0 + 4*0x100 + 0x3
-	Version44       VersionNumber = gquicVersion0 + 4*0x100 + 0x4
+	Version46       VersionNumber = gquicVersion0 + 4*0x100 + 0x7
+	Version47       VersionNumber = gquicVersion0 + 4*0x100 + 0x7
 	VersionTLS      VersionNumber = 101
 	VersionWhatever VersionNumber = 0 // for when the version doesn't matter
 	VersionUnknown  VersionNumber = math.MaxUint32
@@ -30,9 +29,8 @@ const (
 // SupportedVersions lists the versions that the server supports
 // must be in sorted descending order
 var SupportedVersions = []VersionNumber{
-	Version44,
-	Version43,
-	Version39,
+	Version47,
+	Version46,
 }
 
 // IsValidVersion says if the version is known to quic-go
@@ -84,7 +82,7 @@ func (vn VersionNumber) UsesIETFFrameFormat() bool {
 
 // UsesIETFHeaderFormat tells if this version uses the IETF header format
 func (vn VersionNumber) UsesIETFHeaderFormat() bool {
-	return !vn.isGQUIC() || vn >= Version44
+	return !vn.isGQUIC()
 }
 
 // UsesLengthInHeader tells if this version uses the Length field in the IETF header
@@ -99,7 +97,7 @@ func (vn VersionNumber) UsesTokenInHeader() bool {
 
 // UsesStopWaitingFrames tells if this version uses STOP_WAITING frames
 func (vn VersionNumber) UsesStopWaitingFrames() bool {
-	return vn.isGQUIC() && vn <= Version43
+	return vn.isGQUIC()
 }
 
 // UsesVarintPacketNumbers tells if this version uses 7/14/30 bit packet numbers

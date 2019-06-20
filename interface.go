@@ -17,12 +17,8 @@ type StreamID = protocol.StreamID
 type VersionNumber = protocol.VersionNumber
 
 const (
-	// VersionGQUIC39 is gQUIC version 39.
-	VersionGQUIC39 = protocol.Version39
-	// VersionGQUIC43 is gQUIC version 43.
-	VersionGQUIC43 = protocol.Version43
-	// VersionGQUIC44 is gQUIC version 44.
-	VersionGQUIC44 = protocol.Version44
+	VersionGQUIC46 = protocol.Version46
+	VersionGQUIC47 = protocol.Version47
 )
 
 // A Cookie can be used to verify the ownership of the client address.

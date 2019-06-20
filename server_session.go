@@ -50,7 +50,8 @@ func (s *serverSession) handlePacketImpl(p *receivedPacket) error {
 		case protocol.PacketTypeHandshake, protocol.PacketType0RTT: // 0-RTT accepted for gQUIC 44
 			// nothing to do here. Packet will be passed to the session.
 		case protocol.PacketTypeInitial:
-			if hdr.Version == protocol.Version44 {
+			// *** Still do?
+			if hdr.Version >= protocol.Version46 {
 				break
 			}
 			fallthrough

@@ -193,7 +193,8 @@ func (iv *InvariantHeader) parseLongHeader(b *bytes.Reader, sentBy protocol.Pers
 		h.PacketNumber = protocol.PacketNumber(pn)
 		h.PacketNumberLen = protocol.PacketNumberLen4
 	}
-	if h.Type == protocol.PacketType0RTT && v == protocol.Version44 && sentBy == protocol.PerspectiveServer {
+	// *** still do?
+	if h.Type == protocol.PacketType0RTT && sentBy == protocol.PerspectiveServer {
 		h.DiversificationNonce = make([]byte, 32)
 		if _, err := io.ReadFull(b, h.DiversificationNonce); err != nil {
 			if err == io.ErrUnexpectedEOF {

@@ -127,7 +127,8 @@ func dialContext(
 	config = populateClientConfig(config, createdPacketConn)
 	if !createdPacketConn {
 		for _, v := range config.Versions {
-			if v == protocol.Version44 {
+			// *** Still do?
+			if v >= protocol.Version46 {
 				return nil, errors.New("Cannot multiplex connections using gQUIC 44, see https://groups.google.com/a/chromium.org/forum/#!topic/proto-quic/pE9NlLLjizE. Please disable gQUIC 44 in the quic.Config, or use DialAddr")
 			}
 		}
@@ -237,7 +238,8 @@ func populateClientConfig(config *Config, createdPacketConn bool) *Config {
 		connIDLen = protocol.DefaultConnectionIDLength
 	}
 	for _, v := range versions {
-		if v == protocol.Version44 {
+		// *** Still do?
+		if v >= protocol.Version46 {
 			connIDLen = 0
 		}
 	}
@@ -274,7 +276,8 @@ func (c *client) generateConnectionIDs() error {
 	}
 	c.srcConnID = srcConnID
 	c.destConnID = destConnID
-	if c.version == protocol.Version44 {
+	// *** Still do?
+	if c.version >= protocol.Version46 {
 		c.srcConnID = nil
 	}
 	return nil

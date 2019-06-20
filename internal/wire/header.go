@@ -59,7 +59,8 @@ func (h *Header) Write(b *bytes.Buffer, pers protocol.Perspective, ver protocol.
 
 // TODO: add support for the key phase
 func (h *Header) writeLongHeader(b *bytes.Buffer, v protocol.VersionNumber) error {
-	b.WriteByte(byte(0x80 | h.Type))
+	b.WriteByte(byte((1 << 7) | (1 << 6) | byte(h.Type<<4) | byte(h.PacketNumberLen-1)))
+
 	utils.BigEndian.WriteUint32(b, uint32(h.Version))
 	connIDLen, err := encodeConnIDLen(h.DestConnectionID, h.SrcConnectionID)
 	if err != nil {
@@ -96,7 +97,8 @@ func (h *Header) writeLongHeader(b *bytes.Buffer, v protocol.VersionNumber) erro
 		return utils.WriteVarIntPacketNumber(b, h.PacketNumber, h.PacketNumberLen)
 	}
 	utils.BigEndian.WriteUint32(b, uint32(h.PacketNumber))
-	if h.Type == protocol.PacketType0RTT && v == protocol.Version44 {
+	// *** Still do?
+	if h.Type == protocol.PacketType0RTT {
 		if len(h.DiversificationNonce) != 32 {
 			return errors.New("invalid diversification nonce length")
 		}
@@ -106,23 +108,9 @@ func (h *Header) writeLongHeader(b *bytes.Buffer, v protocol.VersionNumber) erro
 }
 
 func (h *Header) writeShortHeader(b *bytes.Buffer, v protocol.VersionNumber) error {
-	typeByte := byte(0x30)
-	typeByte |= byte(h.KeyPhase << 6)
-	if !v.UsesVarintPacketNumbers() {
-		switch h.PacketNumberLen {
-		case protocol.PacketNumberLen1:
-		case protocol.PacketNumberLen2:
-			typeByte |= 0x1
-		case protocol.PacketNumberLen4:
-			typeByte |= 0x2
-		default:
-			return errInvalidPacketNumberLen
-		}
-	}
+	b.WriteByte(byte((1 << 7) | (h.PacketNumberLen - 1)))
 
-	b.WriteByte(typeByte)
 	b.Write(h.DestConnectionID.Bytes())
-
 	if !v.UsesVarintPacketNumbers() {
 		switch h.PacketNumberLen {
 		case protocol.PacketNumberLen1:
@@ -215,7 +203,8 @@ func (h *Header) getHeaderLength(v protocol.VersionNumber) (protocol.ByteCount, 
 		if h.Type == protocol.PacketTypeInitial && v.UsesTokenInHeader() {
 			length += utils.VarIntLen(uint64(len(h.Token))) + protocol.ByteCount(len(h.Token))
 		}
-		if h.Type == protocol.PacketType0RTT && v == protocol.Version44 {
+		// *** Still do?
+		if h.Type == protocol.PacketType0RTT {
 			length += protocol.ByteCount(len(h.DiversificationNonce))
 		}
 		return length, nil
@@ -275,7 +264,8 @@ func (h *Header) logHeader(logger utils.Logger) {
 				logger.Debugf("\tLong Header{Type: %s, DestConnectionID: %s, SrcConnectionID: %s, %sOrigDestConnectionID: %s, Version: %s}", h.Type, h.DestConnectionID, h.SrcConnectionID, token, h.OrigDestConnectionID, h.Version)
 				return
 			}
-			if h.Version == protocol.Version44 {
+			// *** Still do?
+			{
 				var divNonce string
 				if h.Type == protocol.PacketType0RTT {
 					divNonce = fmt.Sprintf("Diversification Nonce: %#x, ", h.DiversificationNonce)
