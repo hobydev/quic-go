@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"log"
 	"math/big"
 	"net"
@@ -19,6 +18,7 @@ import (
 
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/internal/handshake"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 )
 
 var (
@@ -111,7 +111,7 @@ func (ice *iceConn) LocalAddr() net.Addr {
 }
 
 func (ice *iceConn) RemoteAddr() net.Addr {
-	return iceAddr(ice.username)
+	return ice.remoteAddr
 }
 
 type iceAddr string
@@ -132,11 +132,8 @@ func (ice *iceConn) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 }
 
 func (ice *iceConn) WriteTo(p []byte, addr net.Addr) (n int, err error) {
-	log.Printf("Send packet of size %d to %s", len(p), addr)
-	if addr != ice.RemoteAddr() {
-		return 0, errors.New("You can't change the remote address when sending with ICE")
-	}
-	return ice.udp.WriteTo(p, addr)
+	log.Printf("Send non-ICE packet of size %d to %s", len(p), addr)
+	return ice.udp.WriteTo(p, ice.RemoteAddr())
 }
 
 func (ice iceConn) SetDeadline(t time.Time) error {
@@ -208,7 +205,7 @@ func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
 			iceConnByUsername[iceConn.username] = iceConn
 			conns <- iceConn
 		case udpPacket := <-udpPackets:
-			log.Printf("Read packet of size %d from %s.\n", len(udpPacket.data), udpPacket.sender)
+			// log.Printf("Read packet of size %d from %s.\n", len(udpPacket.data), udpPacket.sender)
 			stun := quic.VerifyStunPacket(udpPacket.data)
 			isIceCheck := (stun != nil && stun.Type() == quic.StunBindingRequest && stun.ValidateFingerprint())
 			if isIceCheck {
@@ -236,7 +233,7 @@ func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
 					log.Printf("Received non-ICE packet from unkonwn address: %s\n", udpPacket.sender)
 					continue
 				}
-				fmt.Printf("iceConn: %v\n", iceConn)
+				log.Printf("Received non-ICE packet of size %d\n", len(udpPacket.data))
 				iceConn.receivedPackets <- udpPacket.data
 			}
 		}
@@ -244,12 +241,15 @@ func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
 }
 
 func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate, psk []byte) {
+	logger := utils.DefaultLogger.WithPrefix("QUIC: ")
+	logger.SetLogLevel(utils.LogLevelDebug)
 	quicConfig := &quic.Config{
 		MaxIncomingStreams:    1000,
 		MaxIncomingUniStreams: 1000,
 		AcceptCookie:          func(net.Addr, *handshake.Cookie) bool { return true },
 		KeepAlive:             true,
 		PreSharedKey:          psk,
+		Logger:                logger,
 	}
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,

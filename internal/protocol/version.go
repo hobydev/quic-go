@@ -19,7 +19,7 @@ const (
 
 // The version numbers, making grepping easier
 const (
-	Version46       VersionNumber = gquicVersion0 + 4*0x100 + 0x7
+	Version46       VersionNumber = gquicVersion0 + 4*0x100 + 0x6
 	Version47       VersionNumber = gquicVersion0 + 4*0x100 + 0x7
 	VersionTLS      VersionNumber = 101
 	VersionWhatever VersionNumber = 0 // for when the version doesn't matter
@@ -82,7 +82,7 @@ func (vn VersionNumber) UsesIETFFrameFormat() bool {
 
 // UsesIETFHeaderFormat tells if this version uses the IETF header format
 func (vn VersionNumber) UsesIETFHeaderFormat() bool {
-	return !vn.isGQUIC()
+	return true
 }
 
 // UsesLengthInHeader tells if this version uses the Length field in the IETF header
