@@ -132,14 +132,9 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 	}
 
 	sniSlice, ok := cryptoData[TagSNI]
-	if !ok {
-		return false, qerr.Error(qerr.CryptoMessageParameterNotFound, "SNI required")
+	if ok {
+		h.sni = string(sniSlice)
 	}
-	sni := string(sniSlice)
-	if sni == "" {
-		return false, qerr.Error(qerr.CryptoMessageParameterNotFound, "SNI required")
-	}
-	h.sni = sni
 
 	// prevent version downgrade attacks
 	// see https://groups.google.com/a/chromium.org/forum/#!topic/proto-quic/N-de9j63tCk for a discussion and examples
@@ -159,7 +154,7 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 	var reply []byte
 	var err error
 
-	certUncompressed, err := h.scfg.certChain.GetLeafCert(sni)
+	certUncompressed, err := h.scfg.certChain.GetLeafCert(h.sni)
 	if err != nil {
 		return false, err
 	}
@@ -176,7 +171,7 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 
 	if !h.isInchoateCHLO(cryptoData, certUncompressed) {
 		// We have a CHLO with a proper server config ID, do a 0-RTT handshake
-		reply, err = h.handleCHLO(sni, chloData, cryptoData)
+		reply, err = h.handleCHLO(h.sni, chloData, cryptoData)
 		if err != nil {
 			return false, err
 		}
@@ -189,7 +184,7 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 	}
 
 	// We have an inchoate or non-matching CHLO, we now send a rejection
-	reply, err = h.handleInchoateCHLO(sni, chloData, cryptoData)
+	reply, err = h.handleInchoateCHLO(h.sni, chloData, cryptoData)
 	if err != nil {
 		return false, err
 	}
@@ -347,22 +342,23 @@ func (h *cryptoSetupServer) handleInchoateCHLO(sni string, chlo []byte, cryptoDa
 const pskLabel string = "QUIC PSK"
 
 func (h *cryptoSetupServer) maybeAddPskToSecret(secret []byte) []byte {
-	psk := []byte{} // ***
+	psk := h.scfg.psk
 	if len(psk) == 0 {
 		return secret
 	}
+	// fmt.Printf("Add PSK to secret: psk=%v, secret=%v\n", psk, secret)
 	// "QUIC_PSK" + \0 + psk + littleEndian(uint64(len(psk))) + secret + littleEndian(uint64(len(secret)))
 	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
-	secretWithPsk := make([]byte, len(pskLabel)+1+len(psk)+8+len(secret)+8)
-	writer := bytes.NewBuffer(secretWithPsk)
-	writer.WriteString(pskLabel)
-	writer.WriteByte(0)
-	writer.Write(psk)
+	var secretWithPsk bytes.Buffer
+	secretWithPsk.WriteString(pskLabel)
+	secretWithPsk.WriteByte(0)
+	secretWithPsk.Write(psk)
 	// Little endian!  Yes, really!
-	binary.Write(writer, binary.LittleEndian, uint8(len(psk)))
-	writer.Write(secret)
-	binary.Write(writer, binary.LittleEndian, uint8(len(secret)))
-	return secretWithPsk
+	binary.Write(&secretWithPsk, binary.LittleEndian, uint8(len(psk)))
+	secretWithPsk.Write(secret)
+	binary.Write(&secretWithPsk, binary.LittleEndian, uint8(len(secret)))
+	// fmt.Printf("Added PSK to secret: %v\n", []byte(secretWithPsk.String()))
+	return []byte(secretWithPsk.String())
 }
 
 func (h *cryptoSetupServer) handleCHLO(sni string, data []byte, cryptoData map[Tag][]byte) ([]byte, error) {

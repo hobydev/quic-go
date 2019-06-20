@@ -8,6 +8,7 @@ import (
 
 	"github.com/lucas-clemente/quic-go/internal/handshake"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 )
 
 // The StreamID is the ID of a QUIC stream.
@@ -206,6 +207,7 @@ type Config struct {
 	KeepAlive bool
 	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
 	PreSharedKey []byte
+	Logger       utils.Logger
 }
 
 // A Listener for incoming QUIC connections

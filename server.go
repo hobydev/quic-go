@@ -136,6 +136,7 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config) (*server, 
 		return nil, err
 	}
 	config = populateServerConfig(config)
+	scfg.SetPsk(config.PreSharedKey)
 
 	var supportsTLS bool
 	for _, v := range config.Versions {
@@ -153,6 +154,10 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config) (*server, 
 	if err != nil {
 		return nil, err
 	}
+	logger := config.Logger
+	if logger == nil {
+		logger = utils.DefaultLogger.WithPrefix("server")
+	}
 	s := &server{
 		conn:           conn,
 		tlsConf:        tlsConf,
@@ -164,7 +169,7 @@ func listen(conn net.PacketConn, tlsConf *tls.Config, config *Config) (*server, 
 		sessionQueue:   make(chan Session, 5),
 		errorChan:      make(chan struct{}),
 		supportsTLS:    supportsTLS,
-		logger:         utils.DefaultLogger.WithPrefix("server"),
+		logger:         logger,
 	}
 	s.setup()
 	if supportsTLS {
@@ -290,6 +295,8 @@ func populateServerConfig(config *Config) *Config {
 		MaxIncomingStreams:                    maxIncomingStreams,
 		MaxIncomingUniStreams:                 maxIncomingUniStreams,
 		ConnectionIDLength:                    connIDLen,
+		PreSharedKey:                          config.PreSharedKey,
+		Logger:                                config.Logger,
 	}
 }
 
@@ -346,7 +353,7 @@ func (s *server) Addr() net.Addr {
 }
 
 func (s *server) handlePacket(p *receivedPacket) {
-	fmt.Printf("QUIC: server.handlePacket(%d)\n", len(p.data))
+	// fmt.Printf("QUIC: server.handlePacket(%d)\n", len(p.data))
 	if err := s.handlePacketImpl(p); err != nil {
 		s.logger.Debugf("error handling packet from %s: %s", p.remoteAddr, err)
 	}
@@ -354,15 +361,18 @@ func (s *server) handlePacket(p *receivedPacket) {
 
 func (s *server) handlePacketImpl(p *receivedPacket) error {
 	hdr := p.header
-	fmt.Printf("QUIC: server.handlePacketImpl(%d)\n", len(p.data))
+	// fmt.Printf("QUIC: server.handlePacketImpl(%d) of type %d\n", len(p.data), hdr.Type)
 
 	if hdr.VersionFlag || hdr.IsLongHeader {
 		// send a Version Negotiation Packet if the client is speaking a different protocol version
+		// fmt.Printf("Version: %v; Supported versions: %v\n", hdr.Version, s.config.Versions)
 		if !protocol.IsSupportedVersion(s.config.Versions, hdr.Version) {
+			// fmt.Printf("QUIC: s.sendVersionNegotiationPacket\n")
 			return s.sendVersionNegotiationPacket(p)
 		}
 	}
 	if hdr.Type == protocol.PacketTypeInitial && hdr.Version.UsesTLS() {
+		// fmt.Printf("QUIC: go s.serverTLS.HandleInitial\n")
 		go s.serverTLS.HandleInitial(p)
 		return nil
 	}
@@ -376,6 +386,7 @@ func (s *server) handlePacketImpl(p *receivedPacket) error {
 	// This is (potentially) a Client Hello.
 	// Make sure it has the minimum required size before spending any more ressources on it.
 	if len(p.data) < protocol.MinClientHelloSize {
+		// fmt.Printf("QUIC: dropping small packet for unknown connection\n")
 		return errors.New("dropping small packet for unknown connection")
 	}
 
@@ -387,6 +398,7 @@ func (s *server) handlePacketImpl(p *receivedPacket) error {
 		srcConnID = hdr.DestConnectionID
 	}
 	s.logger.Infof("Serving new connection: %s, version %s from %v", hdr.DestConnectionID, hdr.Version, p.remoteAddr)
+	// fmt.Printf("QUIC: s.newSession\n")
 	sess, err := s.newSession(
 		&conn{pconn: s.conn, currentAddr: p.remoteAddr},
 		s.sessionRunner,
@@ -402,7 +414,9 @@ func (s *server) handlePacketImpl(p *receivedPacket) error {
 		return err
 	}
 	s.sessionHandler.Add(hdr.DestConnectionID, newServerSession(sess, s.config, s.logger))
+	// fmt.Printf("QUIC: go sess.run\n")
 	go sess.run()
+	// fmt.Printf("QUIC: sess.handlePacket\n")
 	sess.handlePacket(p)
 	return nil
 }
