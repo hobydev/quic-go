@@ -207,6 +207,7 @@ func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 				iceConn, ok := iceConnByUsername[stun.Username()]
 				if !ok {
 					log.Printf("ICE check from unknown username %s", stun.Username())
+					continue
 				}
 				if !stun.ValidateMessageIntegrity([]byte(iceConn.password)) {
 					log.Printf("ICE check has bad message integrity.\n")

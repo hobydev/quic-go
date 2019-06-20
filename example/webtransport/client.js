@@ -39,7 +39,7 @@ async function run() {
 
   const iceUsernameFragment = ice.getLocalParameters().usernameFragment
   const quicPsk = hexEncode(quic.getKey())
-  log(`Fetching ${serverUrl} with ICE username fragment '${iceUsernameFragment}' and PSK '${quicPsk}'`);
+  // log(`Fetching ${serverUrl} with ICE username fragment '${iceUsernameFragment}' and PSK '${quicPsk}'`);
   let response = null;
   try {
     response = await fetch(serverUrl, {
@@ -92,4 +92,5 @@ function hexEncode(buf) {
   }
   return s
 }
+
 
