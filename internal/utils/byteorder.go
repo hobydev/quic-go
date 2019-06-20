@@ -12,6 +12,7 @@ type ByteOrder interface {
 	ReadUint32(io.ByteReader) (uint32, error)
 	ReadUint16(io.ByteReader) (uint16, error)
 
+	WriteUintN(b *bytes.Buffer, n uint64, length uint8)
 	WriteUint64(*bytes.Buffer, uint64)
 	WriteUint56(*bytes.Buffer, uint64)
 	WriteUint48(*bytes.Buffer, uint64)

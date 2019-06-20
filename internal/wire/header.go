@@ -46,11 +46,6 @@ var errInvalidPacketNumberLen = errors.New("invalid packet number length")
 
 // Write writes the Header.
 func (h *Header) Write(b *bytes.Buffer, pers protocol.Perspective, ver protocol.VersionNumber) error {
-	if !ver.UsesIETFHeaderFormat() {
-		h.IsPublicHeader = true // save that this is a Public Header, so we can log it correctly later
-		return h.writePublicHeader(b, pers, ver)
-	}
-	// write an IETF QUIC header
 	if h.IsLongHeader {
 		return h.writeLongHeader(b, ver)
 	}
@@ -96,8 +91,7 @@ func (h *Header) writeLongHeader(b *bytes.Buffer, v protocol.VersionNumber) erro
 	if v.UsesVarintPacketNumbers() {
 		return utils.WriteVarIntPacketNumber(b, h.PacketNumber, h.PacketNumberLen)
 	}
-	utils.BigEndian.WriteUint32(b, uint32(h.PacketNumber))
-	// *** Still do?
+	utils.BigEndian.WriteUintN(b, uint64(h.PacketNumber), uint8(h.PacketNumberLen))
 	if h.Type == protocol.PacketType0RTT {
 		if len(h.DiversificationNonce) != 32 {
 			return errors.New("invalid diversification nonce length")
@@ -112,78 +106,9 @@ func (h *Header) writeShortHeader(b *bytes.Buffer, v protocol.VersionNumber) err
 
 	b.Write(h.DestConnectionID.Bytes())
 	if !v.UsesVarintPacketNumbers() {
-		switch h.PacketNumberLen {
-		case protocol.PacketNumberLen1:
-			b.WriteByte(uint8(h.PacketNumber))
-		case protocol.PacketNumberLen2:
-			utils.BigEndian.WriteUint16(b, uint16(h.PacketNumber))
-		case protocol.PacketNumberLen4:
-			utils.BigEndian.WriteUint32(b, uint32(h.PacketNumber))
-		}
-		return nil
+		utils.BigEndian.WriteUintN(b, uint64(h.PacketNumber), uint8(h.PacketNumberLen))
 	}
 	return utils.WriteVarIntPacketNumber(b, h.PacketNumber, h.PacketNumberLen)
-}
-
-// writePublicHeader writes a Public Header.
-func (h *Header) writePublicHeader(b *bytes.Buffer, pers protocol.Perspective, _ protocol.VersionNumber) error {
-	if h.ResetFlag || (h.VersionFlag && pers == protocol.PerspectiveServer) {
-		return errors.New("PublicHeader: Can only write regular packets")
-	}
-	if h.SrcConnectionID.Len() != 0 {
-		return errors.New("PublicHeader: SrcConnectionID must not be set")
-	}
-	if len(h.DestConnectionID) != 0 && len(h.DestConnectionID) != 8 {
-		return fmt.Errorf("PublicHeader: wrong length for Connection ID: %d (expected 8)", len(h.DestConnectionID))
-	}
-
-	publicFlagByte := uint8(0x00)
-	if h.VersionFlag {
-		publicFlagByte |= 0x01
-	}
-	if h.DestConnectionID.Len() > 0 {
-		publicFlagByte |= 0x08
-	}
-	if len(h.DiversificationNonce) > 0 {
-		if len(h.DiversificationNonce) != 32 {
-			return errors.New("invalid diversification nonce length")
-		}
-		publicFlagByte |= 0x04
-	}
-	switch h.PacketNumberLen {
-	case protocol.PacketNumberLen1:
-		publicFlagByte |= 0x00
-	case protocol.PacketNumberLen2:
-		publicFlagByte |= 0x10
-	case protocol.PacketNumberLen4:
-		publicFlagByte |= 0x20
-	}
-	b.WriteByte(publicFlagByte)
-
-	if h.DestConnectionID.Len() > 0 {
-		b.Write(h.DestConnectionID)
-	}
-	if h.VersionFlag && pers == protocol.PerspectiveClient {
-		utils.BigEndian.WriteUint32(b, uint32(h.Version))
-	}
-	if len(h.DiversificationNonce) > 0 {
-		b.Write(h.DiversificationNonce)
-	}
-
-	switch h.PacketNumberLen {
-	case protocol.PacketNumberLen1:
-		b.WriteByte(uint8(h.PacketNumber))
-	case protocol.PacketNumberLen2:
-		utils.BigEndian.WriteUint16(b, uint16(h.PacketNumber))
-	case protocol.PacketNumberLen4:
-		utils.BigEndian.WriteUint32(b, uint32(h.PacketNumber))
-	case protocol.PacketNumberLen6:
-		return errInvalidPacketNumberLen
-	default:
-		return errors.New("PublicHeader: PacketNumberLen not set")
-	}
-
-	return nil
 }
 
 // GetLength determines the length of the Header.

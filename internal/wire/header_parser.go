@@ -92,15 +92,6 @@ func (iv *InvariantHeader) Parse(b *bytes.Reader, sentBy protocol.Perspective, v
 		}
 		return iv.parseLongHeader(b, sentBy, ver)
 	}
-	// The Public Header never uses 6 byte packet numbers.
-	// Therefore, the third and fourth bit will never be 11.
-	// For the Short Header, the third and fourth bit are always 11.
-	if iv.typeByte&0x30 != 0x30 {
-		if sentBy == protocol.PerspectiveServer && iv.typeByte&0x1 > 0 {
-			return iv.parseVersionNegotiationPacket(b)
-		}
-		return iv.parsePublicHeader(b, sentBy, ver)
-	}
 	return iv.parseShortHeader(b, ver)
 }
 
@@ -186,14 +177,13 @@ func (iv *InvariantHeader) parseLongHeader(b *bytes.Reader, sentBy protocol.Pers
 		h.PacketNumber = pn
 		h.PacketNumberLen = pnLen
 	} else {
-		pn, err := utils.BigEndian.ReadUint32(b)
+		h.PacketNumberLen = protocol.PacketNumberLen((iv.typeByte & 0x03) + 1)
+		p, err := utils.BigEndian.ReadUintN(b, uint8(h.PacketNumberLen))
 		if err != nil {
 			return nil, err
 		}
-		h.PacketNumber = protocol.PacketNumber(pn)
-		h.PacketNumberLen = protocol.PacketNumberLen4
+		h.PacketNumber = protocol.PacketNumber(p)
 	}
-	// *** still do?
 	if h.Type == protocol.PacketType0RTT && sentBy == protocol.PerspectiveServer {
 		h.DiversificationNonce = make([]byte, 32)
 		if _, err := io.ReadFull(b, h.DiversificationNonce); err != nil {
@@ -219,68 +209,12 @@ func (iv *InvariantHeader) parseShortHeader(b *bytes.Reader, v protocol.VersionN
 		h.PacketNumber = pn
 		h.PacketNumberLen = pnLen
 	} else {
-		switch iv.typeByte & 0x3 {
-		case 0x0:
-			h.PacketNumberLen = protocol.PacketNumberLen1
-		case 0x1:
-			h.PacketNumberLen = protocol.PacketNumberLen2
-		case 0x2:
-			h.PacketNumberLen = protocol.PacketNumberLen4
-		default:
-			return nil, errInvalidPacketNumberLen
-		}
+		h.PacketNumberLen = protocol.PacketNumberLen((iv.typeByte & 0x03) + 1)
 		p, err := utils.BigEndian.ReadUintN(b, uint8(h.PacketNumberLen))
 		if err != nil {
 			return nil, err
 		}
 		h.PacketNumber = protocol.PacketNumber(p)
 	}
-	return h, nil
-}
-
-func (iv *InvariantHeader) parsePublicHeader(b *bytes.Reader, sentBy protocol.Perspective, ver protocol.VersionNumber) (*Header, error) {
-	h := iv.toHeader()
-	h.IsPublicHeader = true
-	h.ResetFlag = iv.typeByte&0x2 > 0
-	if h.ResetFlag {
-		return h, nil
-	}
-
-	h.VersionFlag = iv.typeByte&0x1 > 0
-	if h.VersionFlag && sentBy == protocol.PerspectiveClient {
-		v, err := utils.BigEndian.ReadUint32(b)
-		if err != nil {
-			return nil, err
-		}
-		h.Version = protocol.VersionNumber(v)
-	}
-
-	// Contrary to what the gQUIC wire spec says, the 0x4 bit only indicates the presence of the diversification nonce for packets sent by the server.
-	// It doesn't have any meaning when sent by the client.
-	if sentBy == protocol.PerspectiveServer && iv.typeByte&0x4 > 0 {
-		h.DiversificationNonce = make([]byte, 32)
-		if _, err := io.ReadFull(b, h.DiversificationNonce); err != nil {
-			if err == io.ErrUnexpectedEOF {
-				return nil, io.EOF
-			}
-			return nil, err
-		}
-	}
-
-	switch iv.typeByte & 0x30 {
-	case 0x00:
-		h.PacketNumberLen = protocol.PacketNumberLen1
-	case 0x10:
-		h.PacketNumberLen = protocol.PacketNumberLen2
-	case 0x20:
-		h.PacketNumberLen = protocol.PacketNumberLen4
-	}
-
-	pn, err := utils.BigEndian.ReadUintN(b, uint8(h.PacketNumberLen))
-	if err != nil {
-		return nil, err
-	}
-	h.PacketNumber = protocol.PacketNumber(pn)
-
 	return h, nil
 }
