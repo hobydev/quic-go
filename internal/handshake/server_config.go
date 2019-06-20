@@ -14,6 +14,7 @@ type ServerConfig struct {
 	ID              []byte
 	obit            []byte
 	cookieGenerator *CookieGenerator
+	psk             []byte
 }
 
 // NewServerConfig creates a new server config
@@ -70,4 +71,8 @@ func (s *ServerConfig) Sign(sni string, chlo []byte) ([]byte, error) {
 // GetCertsCompressed returns the certificate data
 func (s *ServerConfig) GetCertsCompressed(sni string, commonSetHashes, compressedHashes []byte) ([]byte, error) {
 	return s.certChain.GetCertsCompressed(sni, commonSetHashes, compressedHashes)
+}
+
+func (s *ServerConfig) SetPsk(psk []byte) {
+	s.psk = psk
 }

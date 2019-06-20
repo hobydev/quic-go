@@ -45,12 +45,12 @@ func main() {
 	requests := make(chan clientRequest)
 	go runSignalingServer(requests)
 
-	conns := make(chan net.PacketConn)
+	conns := make(chan *iceConn)
 	go runIceServer(requests, conns)
 
 	tlsCert := generateTlsCert()
 	for conn := range conns {
-		go runQuicServer(conn, tlsCert)
+		go runQuicServer(conn, tlsCert, conn.quicPsk)
 	}
 }
 
@@ -92,10 +92,12 @@ func runSignalingServer(requests chan<- clientRequest) {
 }
 
 type iceConn struct {
-	udp             net.PacketConn
-	remoteAddr      net.Addr
-	username        string
-	password        string
+	udp        net.PacketConn
+	remoteAddr net.Addr
+	username   string
+	password   string
+	// Hack: the one thing we need from client requests
+	quicPsk         []byte
 	receivedPackets chan []byte
 }
 
@@ -157,7 +159,7 @@ type udpPacket struct {
 	data   []byte
 }
 
-func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
+func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
 	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: nil, Port: icePort})
 	if err != nil {
 		log.Fatalf("Failed to open UDP port %d: '%s'\n", icePort, err)
@@ -196,7 +198,13 @@ func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 				icePort:     icePort,
 				icePassword: icePassword,
 			}
-			iceConn := &iceConn{udp: udp, username: request.iceUsername, password: icePassword, receivedPackets: make(chan []byte)}
+			iceConn := &iceConn{
+				udp:             udp,
+				username:        request.iceUsername,
+				password:        icePassword,
+				quicPsk:         request.quicPsk,
+				receivedPackets: make(chan []byte),
+			}
 			iceConnByUsername[iceConn.username] = iceConn
 			conns <- iceConn
 		case udpPacket := <-udpPackets:
@@ -235,12 +243,13 @@ func runIceServer(requests <-chan clientRequest, conns chan<- net.PacketConn) {
 	}
 }
 
-func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate) {
+func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate, psk []byte) {
 	quicConfig := &quic.Config{
 		MaxIncomingStreams:    1000,
 		MaxIncomingUniStreams: 1000,
 		AcceptCookie:          func(net.Addr, *handshake.Cookie) bool { return true },
 		KeepAlive:             true,
+		PreSharedKey:          psk,
 	}
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,

@@ -344,8 +344,30 @@ func (h *cryptoSetupServer) handleInchoateCHLO(sni string, chlo []byte, cryptoDa
 	return serverReply.Bytes(), nil
 }
 
+const pskLabel string = "QUIC PSK"
+
+func (h *cryptoSetupServer) maybeAddPskToSecret(secret []byte) []byte {
+	psk := []byte{} // ***
+	if len(psk) == 0 {
+		return secret
+	}
+	// "QUIC_PSK" + \0 + psk + littleEndian(uint64(len(psk))) + secret + littleEndian(uint64(len(secret)))
+	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
+	secretWithPsk := make([]byte, len(pskLabel)+1+len(psk)+8+len(secret)+8)
+	writer := bytes.NewBuffer(secretWithPsk)
+	writer.WriteString(pskLabel)
+	writer.WriteByte(0)
+	writer.Write(psk)
+	// Little endian!  Yes, really!
+	binary.Write(writer, binary.LittleEndian, uint8(len(psk)))
+	writer.Write(secret)
+	binary.Write(writer, binary.LittleEndian, uint8(len(secret)))
+	return secretWithPsk
+}
+
 func (h *cryptoSetupServer) handleCHLO(sni string, data []byte, cryptoData map[Tag][]byte) ([]byte, error) {
 	// We have a CHLO matching our server config, we can continue with the 0-RTT handshake
+	// Called initial_premaster_secret in C++
 	sharedSecret, err := h.scfg.kex.CalculateSharedKey(cryptoData[TagPUBS])
 	if err != nil {
 		return nil, err
@@ -382,7 +404,7 @@ func (h *cryptoSetupServer) handleCHLO(sni string, data []byte, cryptoData map[T
 
 	h.secureAEAD, err = h.keyDerivation(
 		false,
-		sharedSecret,
+		h.maybeAddPskToSecret(sharedSecret),
 		clientNonce,
 		h.connID,
 		data,
@@ -412,7 +434,7 @@ func (h *cryptoSetupServer) handleCHLO(sni string, data []byte, cryptoData map[T
 
 	h.forwardSecureAEAD, err = h.keyDerivation(
 		true,
-		ephermalSharedSecret,
+		h.maybeAddPskToSecret(ephermalSharedSecret),
 		fsNonce.Bytes(),
 		h.connID,
 		data,

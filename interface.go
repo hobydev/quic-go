@@ -204,6 +204,8 @@ type Config struct {
 	MaxIncomingUniStreams int
 	// KeepAlive defines whether this peer will periodically send PING frames to keep the connection alive.
 	KeepAlive bool
+	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
+	PreSharedKey []byte
 }
 
 // A Listener for incoming QUIC connections
