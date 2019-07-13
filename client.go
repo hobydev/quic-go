@@ -259,6 +259,8 @@ func populateClientConfig(config *Config, createdPacketConn bool) *Config {
 		MaxIncomingStreams:                    maxIncomingStreams,
 		MaxIncomingUniStreams:                 maxIncomingUniStreams,
 		KeepAlive:                             config.KeepAlive,
+		PreSharedKey:                          config.PreSharedKey,
+		Logger:                                config.Logger,
 	}
 }
 
