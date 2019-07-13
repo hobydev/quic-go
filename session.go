@@ -268,6 +268,7 @@ var newClientSession = func(
 		handshakeEvent,
 		initialVersion,
 		negotiatedVersions,
+		s.config.PreSharedKey,
 		s.logger,
 	)
 	if err != nil {

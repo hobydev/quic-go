@@ -1601,6 +1601,7 @@ var _ = Describe("Client Session", func() {
 			handshakeChanP chan<- struct{},
 			_ protocol.VersionNumber,
 			_ []protocol.VersionNumber,
+			_ []byte,
 			_ utils.Logger,
 		) (handshake.CryptoSetup, error) {
 			handshakeChan = handshakeChanP

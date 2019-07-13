@@ -1,7 +1,9 @@
 package handshake
 
 import (
+	"bytes"
 	"crypto/x509"
+	"encoding/binary"
 
 	"github.com/bifurcation/mint"
 	"github.com/lucas-clemente/quic-go/internal/crypto"
@@ -58,4 +60,22 @@ type ConnectionState struct {
 	HandshakeComplete bool                // handshake is complete
 	ServerName        string              // server name requested by client, if any (server side only)
 	PeerCertificates  []*x509.Certificate // certificate chain presented by remote peer
+}
+
+const pskLabel string = "QUIC PSK"
+
+func addPskToSecret(secret, psk []byte) []byte {
+	// fmt.Printf("Add PSK to secret: psk=%v, secret=%v\n", psk, secret)
+	// "QUIC_PSK" + \0 + psk + littleEndian(uint64(len(psk))) + secret + littleEndian(uint64(len(secret)))
+	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
+	var secretWithPsk bytes.Buffer
+	secretWithPsk.WriteString(pskLabel)
+	secretWithPsk.WriteByte(0)
+	secretWithPsk.Write(psk)
+	// Little endian!  Yes, really!
+	binary.Write(&secretWithPsk, binary.LittleEndian, uint8(len(psk)))
+	secretWithPsk.Write(secret)
+	binary.Write(&secretWithPsk, binary.LittleEndian, uint8(len(secret)))
+	// fmt.Printf("Added PSK to secret: %v\n", []byte(secretWithPsk.String()))
+	return []byte(secretWithPsk.String())
 }

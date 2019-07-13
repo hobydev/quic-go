@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"io"
 	"log"
 	"math/big"
 	"net"
@@ -265,7 +266,7 @@ func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate, psk []byte) {
 		PreSharedKey:          psk,
 		SniRequired:           false,
 		Logger:                logger,
-		Versions:              []protocol.VersionNumber{protocol.Version46},
+		Versions:              []protocol.VersionNumber{protocol.Version44},
 	}
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
@@ -286,6 +287,10 @@ func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate, psk []byte) {
 		log.Fatalf("Could not session.AcceptStream().")
 	}
 	log.Printf("Got a stream! StreamID = %s", stream.StreamID())
+	_, err = io.Copy(stream, stream)
+	if err != nil {
+		log.Fatalf("Could not copy stream.")
+	}
 }
 
 func generateTlsCert() tls.Certificate {

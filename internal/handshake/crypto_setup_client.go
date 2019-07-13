@@ -55,6 +55,8 @@ type cryptoSetupClient struct {
 
 	params *TransportParameters
 
+	psk []byte
+
 	logger utils.Logger
 }
 
@@ -77,6 +79,7 @@ func NewCryptoSetupClient(
 	handshakeEvent chan<- struct{},
 	initialVersion protocol.VersionNumber,
 	negotiatedVersions []protocol.VersionNumber,
+	psk []byte,
 	logger utils.Logger,
 ) (CryptoSetup, error) {
 	nullAEAD, err := crypto.NewNullAEAD(protocol.PerspectiveClient, connID, version)
@@ -100,9 +103,18 @@ func NewCryptoSetupClient(
 		// We need strip those from the list, since they won't be included in the handshake tag.
 		negotiatedVersions: protocol.StripGreasedVersions(negotiatedVersions),
 		divNonceChan:       divNonceChan,
+		psk:                psk,
 		logger:             logger,
 	}
 	return cs, nil
+}
+
+func (h *cryptoSetupClient) maybeAddPskToSecret(secret []byte) []byte {
+	psk := h.psk
+	if len(psk) == 0 {
+		return secret
+	}
+	return addPskToSecret(secret, psk)
 }
 
 func (h *cryptoSetupClient) HandleCryptoStream() error {
@@ -263,7 +275,7 @@ func (h *cryptoSetupClient) handleSHLOMessage(cryptoData map[Tag][]byte) (*Trans
 
 	h.forwardSecureAEAD, err = h.keyDerivation(
 		true,
-		ephermalSharedSecret,
+		h.maybeAddPskToSecret(ephermalSharedSecret),
 		nonce,
 		h.connID,
 		h.lastSentCHLO,
@@ -500,7 +512,7 @@ func (h *cryptoSetupClient) maybeUpgradeCrypto() error {
 
 		h.secureAEAD, err = h.keyDerivation(
 			false,
-			h.serverConfig.sharedSecret,
+			h.maybeAddPskToSecret(h.serverConfig.sharedSecret),
 			nonce,
 			h.connID,
 			h.lastSentCHLO,

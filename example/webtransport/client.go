@@ -22,7 +22,7 @@ func main() {
 		KeepAlive:             true,
 		PreSharedKey:          []byte("default-psk"),
 		Logger:                logger,
-		Versions:              []protocol.VersionNumber{protocol.Version46},
+		Versions:              []protocol.VersionNumber{protocol.Version44},
 	}
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,

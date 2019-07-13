@@ -344,26 +344,12 @@ func (h *cryptoSetupServer) handleInchoateCHLO(sni string, chlo []byte, cryptoDa
 	return serverReply.Bytes(), nil
 }
 
-const pskLabel string = "QUIC PSK"
-
 func (h *cryptoSetupServer) maybeAddPskToSecret(secret []byte) []byte {
 	psk := h.scfg.psk
 	if len(psk) == 0 {
 		return secret
 	}
-	// fmt.Printf("Add PSK to secret: psk=%v, secret=%v\n", psk, secret)
-	// "QUIC_PSK" + \0 + psk + littleEndian(uint64(len(psk))) + secret + littleEndian(uint64(len(secret)))
-	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
-	var secretWithPsk bytes.Buffer
-	secretWithPsk.WriteString(pskLabel)
-	secretWithPsk.WriteByte(0)
-	secretWithPsk.Write(psk)
-	// Little endian!  Yes, really!
-	binary.Write(&secretWithPsk, binary.LittleEndian, uint8(len(psk)))
-	secretWithPsk.Write(secret)
-	binary.Write(&secretWithPsk, binary.LittleEndian, uint8(len(secret)))
-	// fmt.Printf("Added PSK to secret: %v\n", []byte(secretWithPsk.String()))
-	return []byte(secretWithPsk.String())
+	return addPskToSecret(secret, psk)
 }
 
 func (h *cryptoSetupServer) handleCHLO(sni string, data []byte, cryptoData map[Tag][]byte) ([]byte, error) {
