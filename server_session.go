@@ -26,7 +26,6 @@ func newServerSession(sess quicSession, config *Config, logger utils.Logger) pac
 }
 
 func (s *serverSession) handlePacket(p *receivedPacket) {
-	fmt.Printf("QUIC: serverSession.handlePacket(%d)\n", len(p.data))
 	if err := s.handlePacketImpl(p); err != nil {
 		s.logger.Debugf("error handling packet from %s: %s", p.remoteAddr, err)
 	}
@@ -50,8 +49,7 @@ func (s *serverSession) handlePacketImpl(p *receivedPacket) error {
 		case protocol.PacketTypeHandshake, protocol.PacketType0RTT: // 0-RTT accepted for gQUIC 44
 			// nothing to do here. Packet will be passed to the session.
 		case protocol.PacketTypeInitial:
-			// *** Still do?
-			if hdr.Version >= protocol.Version46 {
+			if hdr.Version >= protocol.Version44 {
 				break
 			}
 			fallthrough

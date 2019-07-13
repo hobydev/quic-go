@@ -13,6 +13,16 @@ type bigEndian struct{}
 
 var _ ByteOrder = &bigEndian{}
 
+func (bigEndian) WriteUintN(b *bytes.Buffer, n uint64, length uint8) {
+	bytes := make([]byte, length)
+	shifter := (uint64(length) - 1) * 8
+	for i := uint8(0); i < length; i++ {
+		bytes[i] = byte(n >> shifter)
+		shifter -= 8
+	}
+	b.Write(bytes)
+}
+
 // ReadUintN reads N bytes
 func (bigEndian) ReadUintN(b io.ByteReader, length uint8) (uint64, error) {
 	var res uint64
@@ -87,16 +97,6 @@ func (bigEndian) ReadUint16(b io.ByteReader) (uint16, error) {
 		return 0, err
 	}
 	return uint16(b1) + uint16(b2)<<8, nil
-}
-
-func (bigEndian) WriteUintN(b *bytes.Buffer, n uint64, length uint8) {
-	bytes := make([]byte, length)
-	shifter := (uint64(length) - 1) * 8
-	for i := uint8(0); i < length; i++ {
-		bytes[i] = byte(n >> shifter)
-		shifter -= 8
-	}
-	b.Write(bytes)
 }
 
 // WriteUint64 writes a uint64

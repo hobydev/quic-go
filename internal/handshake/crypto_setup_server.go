@@ -132,9 +132,14 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 	}
 
 	sniSlice, ok := cryptoData[TagSNI]
-	if ok {
-		h.sni = string(sniSlice)
+	if !ok && h.scfg.sniRequired {
+		return false, qerr.Error(qerr.CryptoMessageParameterNotFound, "SNI required")
 	}
+	sni := string(sniSlice)
+	if sni == "" && h.scfg.sniRequired {
+		return false, qerr.Error(qerr.CryptoMessageParameterNotFound, "SNI required")
+	}
+	h.sni = sni
 
 	// prevent version downgrade attacks
 	// see https://groups.google.com/a/chromium.org/forum/#!topic/proto-quic/N-de9j63tCk for a discussion and examples
@@ -154,7 +159,7 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 	var reply []byte
 	var err error
 
-	certUncompressed, err := h.scfg.certChain.GetLeafCert(h.sni)
+	certUncompressed, err := h.scfg.certChain.GetLeafCert(sni)
 	if err != nil {
 		return false, err
 	}
@@ -171,7 +176,7 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 
 	if !h.isInchoateCHLO(cryptoData, certUncompressed) {
 		// We have a CHLO with a proper server config ID, do a 0-RTT handshake
-		reply, err = h.handleCHLO(h.sni, chloData, cryptoData)
+		reply, err = h.handleCHLO(sni, chloData, cryptoData)
 		if err != nil {
 			return false, err
 		}
@@ -184,7 +189,7 @@ func (h *cryptoSetupServer) handleMessage(chloData []byte, cryptoData map[Tag][]
 	}
 
 	// We have an inchoate or non-matching CHLO, we now send a rejection
-	reply, err = h.handleInchoateCHLO(h.sni, chloData, cryptoData)
+	reply, err = h.handleInchoateCHLO(sni, chloData, cryptoData)
 	if err != nil {
 		return false, err
 	}
@@ -363,7 +368,6 @@ func (h *cryptoSetupServer) maybeAddPskToSecret(secret []byte) []byte {
 
 func (h *cryptoSetupServer) handleCHLO(sni string, data []byte, cryptoData map[Tag][]byte) ([]byte, error) {
 	// We have a CHLO matching our server config, we can continue with the 0-RTT handshake
-	// Called initial_premaster_secret in C++
 	sharedSecret, err := h.scfg.kex.CalculateSharedKey(cryptoData[TagPUBS])
 	if err != nil {
 		return nil, err

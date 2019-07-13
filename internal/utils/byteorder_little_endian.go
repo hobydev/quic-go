@@ -13,6 +13,16 @@ type littleEndian struct{}
 
 var _ ByteOrder = &littleEndian{}
 
+func (littleEndian) WriteUintN(b *bytes.Buffer, n uint64, length uint8) {
+	bytes := make([]byte, length)
+	shifter := uint64(0)
+	for i := uint8(0); i < length; i++ {
+		bytes[i] = byte(n >> shifter)
+		shifter += 8
+	}
+	b.Write(bytes)
+}
+
 // ReadUintN reads N bytes
 func (littleEndian) ReadUintN(b io.ByteReader, length uint8) (uint64, error) {
 	var res uint64
@@ -87,15 +97,6 @@ func (littleEndian) ReadUint16(b io.ByteReader) (uint16, error) {
 		return 0, err
 	}
 	return uint16(b1) + uint16(b2)<<8, nil
-}
-func (littleEndian) WriteUintN(b *bytes.Buffer, n uint64, length uint8) {
-	bytes := make([]byte, length)
-	shifter := uint64(0)
-	for i := uint8(0); i < length; i++ {
-		bytes[i] = byte(n >> shifter)
-		shifter += 8
-	}
-	b.Write(bytes)
 }
 
 // WriteUint64 writes a uint64

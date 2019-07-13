@@ -15,6 +15,7 @@ type ServerConfig struct {
 	obit            []byte
 	cookieGenerator *CookieGenerator
 	psk             []byte
+	sniRequired     bool
 }
 
 // NewServerConfig creates a new server config
@@ -42,6 +43,7 @@ func NewServerConfig(kex crypto.KeyExchange, certChain crypto.CertChain) (*Serve
 		ID:              id,
 		obit:            obit,
 		cookieGenerator: cookieGenerator,
+		sniRequired:     true,
 	}, nil
 }
 
@@ -75,4 +77,8 @@ func (s *ServerConfig) GetCertsCompressed(sni string, commonSetHashes, compresse
 
 func (s *ServerConfig) SetPsk(psk []byte) {
 	s.psk = psk
+}
+
+func (s *ServerConfig) SetSniRequired(r bool) {
+	s.sniRequired = r
 }

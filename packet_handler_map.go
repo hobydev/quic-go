@@ -68,7 +68,6 @@ func (h *packetHandlerMap) removeByConnectionIDAsString(id string) {
 }
 
 func (h *packetHandlerMap) SetServer(s unknownPacketHandler) {
-	fmt.Printf("QUIC: packetHandlerMap.SetServer(%#v)\n", s)
 	h.mutex.Lock()
 	h.server = s
 	h.mutex.Unlock()
@@ -126,9 +125,7 @@ func (h *packetHandlerMap) listen() {
 		data = data[:protocol.MaxReceivePacketSize]
 		// The packet size should not exceed protocol.MaxReceivePacketSize bytes
 		// If it does, we only read a truncated packet, which will then end up undecryptable
-		// log.Printf("QUIC: ReadFrom\n")
 		n, addr, err := h.conn.ReadFrom(data)
-		// log.Printf("QUIC: ReadFrom result: %d from %s\n", n, addr)
 		if err != nil {
 			h.close(err)
 			return
@@ -146,7 +143,6 @@ func (h *packetHandlerMap) handlePacket(addr net.Addr, data []byte) error {
 
 	r := bytes.NewReader(data)
 	iHdr, err := wire.ParseInvariantHeader(r, h.connIDLen)
-	// fmt.Printf("QUIC: headers: %v\n", iHdr)
 	// drop the packet if we can't parse the header
 	if err != nil {
 		return fmt.Errorf("error parsing invariant header: %s", err)
@@ -160,7 +156,6 @@ func (h *packetHandlerMap) handlePacket(addr net.Addr, data []byte) error {
 	var sentBy protocol.Perspective
 	var version protocol.VersionNumber
 	var handlePacket func(*receivedPacket)
-	// fmt.Printf("QUIC: what handler? %v, %v, %v\n", handler, ok, server)
 	if ok && handler == nil {
 		// Late packet for closed session
 		return nil
@@ -169,7 +164,6 @@ func (h *packetHandlerMap) handlePacket(addr net.Addr, data []byte) error {
 		if server == nil { // no server set
 			return fmt.Errorf("received a packet with an unexpected connection ID %s", iHdr.DestConnectionID)
 		}
-		fmt.Printf("QUIC: handlePacket = server.handlePacket\n")
 		handlePacket = server.handlePacket
 		sentBy = protocol.PerspectiveClient
 		version = iHdr.Version
@@ -181,10 +175,8 @@ func (h *packetHandlerMap) handlePacket(addr net.Addr, data []byte) error {
 
 	hdr, err := iHdr.Parse(r, sentBy, version)
 	if err != nil {
-		fmt.Printf("QUIC: failed to parse packet: err\n", err)
 		return fmt.Errorf("error parsing header: %s", err)
 	}
-	fmt.Printf("QUIC: parsed packet fine: %v\n", hdr)
 	hdr.Raw = data[:len(data)-r.Len()]
 	packetData := data[len(data)-r.Len():]
 
@@ -196,7 +188,6 @@ func (h *packetHandlerMap) handlePacket(addr net.Addr, data []byte) error {
 		// TODO(#1312): implement parsing of compound packets
 	}
 
-	fmt.Printf("QUIC: handlePacket(%d)\n", len(data))
 	handlePacket(&receivedPacket{
 		remoteAddr: addr,
 		header:     hdr,

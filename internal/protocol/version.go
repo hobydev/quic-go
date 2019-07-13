@@ -12,13 +12,15 @@ type VersionNumber uint32
 
 // gQUIC version range as defined in the wiki: https://github.com/quicwg/base-drafts/wiki/QUIC-Versions
 const (
-	gquicVersion0 = 0x51303030
-	//                0x51303436
-	maxGquicVersion = 0x51303439
+	gquicVersion0   = 0x51303030
+	maxGquicVersion = 0x51303447
 )
 
 // The version numbers, making grepping easier
 const (
+	Version39       VersionNumber = gquicVersion0 + 3*0x100 + 0x9
+	Version43       VersionNumber = gquicVersion0 + 4*0x100 + 0x3
+	Version44       VersionNumber = gquicVersion0 + 4*0x100 + 0x4
 	Version46       VersionNumber = gquicVersion0 + 4*0x100 + 0x6
 	Version47       VersionNumber = gquicVersion0 + 4*0x100 + 0x7
 	VersionTLS      VersionNumber = 101
@@ -29,13 +31,14 @@ const (
 // SupportedVersions lists the versions that the server supports
 // must be in sorted descending order
 var SupportedVersions = []VersionNumber{
-	Version47,
-	Version46,
+	Version44,
+	Version43,
+	Version39,
 }
 
 // IsValidVersion says if the version is known to quic-go
 func IsValidVersion(v VersionNumber) bool {
-	return v == VersionTLS || IsSupportedVersion(SupportedVersions, v)
+	return v == VersionTLS || IsSupportedVersion(SupportedVersions, v) || v == Version46
 }
 
 // UsesTLS says if this QUIC version uses TLS 1.3 for the handshake
@@ -82,7 +85,7 @@ func (vn VersionNumber) UsesIETFFrameFormat() bool {
 
 // UsesIETFHeaderFormat tells if this version uses the IETF header format
 func (vn VersionNumber) UsesIETFHeaderFormat() bool {
-	return true
+	return !vn.isGQUIC() || vn >= Version44
 }
 
 // UsesLengthInHeader tells if this version uses the Length field in the IETF header
@@ -97,7 +100,7 @@ func (vn VersionNumber) UsesTokenInHeader() bool {
 
 // UsesStopWaitingFrames tells if this version uses STOP_WAITING frames
 func (vn VersionNumber) UsesStopWaitingFrames() bool {
-	return vn.isGQUIC()
+	return vn.isGQUIC() && vn <= Version43
 }
 
 // UsesVarintPacketNumbers tells if this version uses 7/14/30 bit packet numbers

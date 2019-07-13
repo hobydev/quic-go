@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -28,7 +29,7 @@ type PacketType uint8
 
 const (
 	// PacketTypeInitial is the packet type of an Initial packet
-	PacketTypeInitial PacketType = 0
+	PacketTypeInitial PacketType = 4 // Can't be 0!
 	// PacketTypeRetry is the packet type of a Retry packet
 	PacketTypeRetry PacketType = 3
 	// PacketTypeHandshake is the packet type of a Handshake packet
@@ -36,6 +37,55 @@ const (
 	// PacketType0RTT is the packet type of a 0-RTT packet
 	PacketType0RTT PacketType = 1
 )
+
+func ParsePacketType(u uint8) (PacketType, error) {
+	pt := PacketType(u)
+	switch pt {
+	case PacketTypeRetry, PacketTypeHandshake, PacketType0RTT:
+		return pt, nil
+	case PacketType(0):
+		return PacketTypeInitial, nil
+	default:
+		return PacketType(0), errors.New("Invalid packet type.")
+	}
+}
+
+func SerializePacketType(t PacketType) uint8 {
+	if t == PacketTypeInitial {
+		return 0
+	}
+	return uint8(t)
+}
+
+func ParseOldPacketType(u uint8) (PacketType, error) {
+	switch u {
+	case 0x7f:
+		return PacketTypeInitial, nil
+	case 0x7e:
+		return PacketTypeRetry, nil
+	case 0x7d:
+		return PacketTypeHandshake, nil
+	case 0x7c:
+		return PacketType0RTT, nil
+	default:
+		return PacketType(0), errors.New("Invalid packet type.")
+	}
+}
+
+func SerializeOldPacketType(t PacketType) uint8 {
+	switch t {
+	case PacketTypeInitial:
+		return 0x7f
+	case PacketTypeRetry:
+		return 0x7e
+	case PacketTypeHandshake:
+		return 0x7d
+	case PacketType0RTT:
+		return 0x7c
+	default:
+		return 0 // HACK
+	}
+}
 
 func (t PacketType) String() string {
 	switch t {

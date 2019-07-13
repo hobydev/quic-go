@@ -18,6 +18,7 @@ import (
 
 	quic "github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/internal/handshake"
+	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/utils"
 )
 
@@ -46,7 +47,7 @@ func main() {
 	go runSignalingServer(requests)
 
 	conns := make(chan *iceConn)
-	go runIceServer(requests, conns)
+	go runIceServer(requests, conns, []byte("default-psk"))
 
 	tlsCert := generateTlsCert()
 	for conn := range conns {
@@ -156,7 +157,7 @@ type udpPacket struct {
 	data   []byte
 }
 
-func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
+func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn, defaultPsk []byte) {
 	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: nil, Port: icePort})
 	if err != nil {
 		log.Fatalf("Failed to open UDP port %d: '%s'\n", icePort, err)
@@ -178,6 +179,16 @@ func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
 			udpPackets <- udpPacket{data: data, sender: addr}
 		}
 	}(udpPackets)
+
+	var defaultConn *iceConn
+	if defaultPsk != nil {
+		defaultConn = &iceConn{
+			udp:             udp,
+			quicPsk:         defaultPsk,
+			receivedPackets: make(chan []byte),
+		}
+		conns <- defaultConn
+	}
 
 	iceConnByUsername := make(map[string]*iceConn)
 	iceConnByRemoteAddr := make(map[string]*iceConn)
@@ -229,12 +240,15 @@ func runIceServer(requests <-chan clientRequest, conns chan<- *iceConn) {
 				iceConnByRemoteAddr[udpPacket.sender.String()] = iceConn
 			} else {
 				iceConn, ok := iceConnByRemoteAddr[udpPacket.sender.String()]
-				if !ok {
+				if ok {
+					log.Printf("Received non-ICE packet of size %d\n", len(udpPacket.data))
+					iceConn.receivedPackets <- udpPacket.data
+				} else if defaultConn != nil {
+					defaultConn.remoteAddr = udpPacket.sender
+					defaultConn.receivedPackets <- udpPacket.data
+				} else {
 					log.Printf("Received non-ICE packet from unkonwn address: %s\n", udpPacket.sender)
-					continue
 				}
-				log.Printf("Received non-ICE packet of size %d\n", len(udpPacket.data))
-				iceConn.receivedPackets <- udpPacket.data
 			}
 		}
 	}
@@ -249,7 +263,9 @@ func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate, psk []byte) {
 		AcceptCookie:          func(net.Addr, *handshake.Cookie) bool { return true },
 		KeepAlive:             true,
 		PreSharedKey:          psk,
+		SniRequired:           false,
 		Logger:                logger,
+		Versions:              []protocol.VersionNumber{protocol.Version46},
 	}
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
@@ -258,7 +274,7 @@ func runQuicServer(conn net.PacketConn, tlsCert tls.Certificate, psk []byte) {
 	}
 	listener, err := quic.Listen(conn, tlsConfig, quicConfig)
 	if err != nil {
-		log.Fatalf("Could not quic.Listen().")
+		log.Fatalf("Could not quic.Listen(): %v.", err)
 	}
 	session, err := listener.Accept()
 	log.Printf("Got a session!\n")

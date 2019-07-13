@@ -18,8 +18,12 @@ type StreamID = protocol.StreamID
 type VersionNumber = protocol.VersionNumber
 
 const (
-	VersionGQUIC46 = protocol.Version46
-	VersionGQUIC47 = protocol.Version47
+	// VersionGQUIC39 is gQUIC version 39.
+	VersionGQUIC39 = protocol.Version39
+	// VersionGQUIC43 is gQUIC version 43.
+	VersionGQUIC43 = protocol.Version43
+	// VersionGQUIC44 is gQUIC version 44.
+	VersionGQUIC44 = protocol.Version44
 )
 
 // A Cookie can be used to verify the ownership of the client address.
@@ -205,9 +209,11 @@ type Config struct {
 	MaxIncomingUniStreams int
 	// KeepAlive defines whether this peer will periodically send PING frames to keep the connection alive.
 	KeepAlive bool
+
 	// See https://cs.chromium.org/chromium/src/net/third_party/quiche/src/quic/core/crypto/crypto_utils.cc?g=0&l=196
 	PreSharedKey []byte
 	Logger       utils.Logger
+	SniRequired  bool
 }
 
 // A Listener for incoming QUIC connections
